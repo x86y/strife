@@ -50,22 +50,19 @@ version = "0.1"
 [dependencies.twilight-gateway]
 default-features = false
 features = ["compression", "rustls", "tracing", "zlib-simd"]
-#git = "https://github.com/mov-rax-rax/twilight.git"
-#branch = "user"
-path = "../twilight/gateway"
+git = "https://github.com/mov-rax-rax/twilight.git"
+branch = "user"
 
 [dependencies.twilight-http]
 default-features = false
 features = ["rustls", "tracing"]
-#git = "https://github.com/mov-rax-rax/twilight.git"
-#branch = "user"
-path = "../twilight/http"
+git = "https://github.com/mov-rax-rax/twilight.git"
+branch = "user"
 
 [dependencies.twilight-model]
 default-features = false
-#git = "https://github.com/mov-rax-rax/twilight.git"
-#branch = "user"
-path = "../twilight/model"
+git = "https://github.com/mov-rax-rax/twilight.git"
+branch = "user"
 
 [features]
 compression = ["twilight-gateway/compression"]
