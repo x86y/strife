@@ -1,99 +1,55 @@
-use crossterm::event::EventStream;
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use chrono::{Local, NaiveDateTime, TimeZone};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use std::io;
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Corner, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans, Text},
-    widgets::{Block, List, ListItem, Paragraph},
-    Frame, Terminal,
-};
-use unicode_width::UnicodeWidthStr;
-
 use discord_gateway_stream::{Gateway, GatewayEvent};
-use futures_util::future::{BoxFuture, FutureExt, IntoStream};
-use futures_util::stream;
-use futures_util::stream::{Map, Select, Stream, StreamExt};
-use std::marker::PhantomPinned;
+use futures_util::stream::StreamExt;
+use std::env;
+use std::io;
+use std::ops::Deref;
 use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::{env, mem};
-use twilight_gateway::shard::{Events, ShardStartError};
+use std::sync::Arc;
+use tui::backend::{Backend, CrosstermBackend};
+use tui::layout::{Constraint, Corner, Direction, Layout};
+use tui::style::{Color, Style};
+use tui::text::{Span, Spans};
+use tui::widgets::{List, ListItem, Paragraph};
+use tui::{Frame, Terminal};
+use twilight_cache_inmemory::InMemoryCache;
 use twilight_gateway::Shard;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 use twilight_model::gateway::payload::outgoing::update_presence::UpdatePresencePayload;
 use twilight_model::gateway::presence::Status;
 use twilight_model::gateway::Intents;
 use twilight_model::id::{ChannelId, MessageId, UserId};
+use unicode_width::UnicodeWidthStr;
 
 enum InputMode {
     Normal,
     Editing,
 }
 
-enum Kind {
-    User,
-    Channel,
-}
-
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
-#[derive(Clone, Debug)]
-struct Message {
-    pub content: Box<str>,
-    pub id: MessageId,
-    pub author: Arc<User>,
-}
-
-#[derive(Clone, Debug)]
-struct User {
-    pub id: UserId,
-    pub username: Box<str>,
-}
-
-#[derive(Clone, Debug)]
-struct Channel {
-    pub id: ChannelId,
-    pub messages: BTreeMap<MessageId, Arc<RwLock<Message>>>,
-    pub name: Box<str>,
-}
-
-use parking_lot::RwLock;
-
-/// App holds the state of the application
 struct App {
-    /// Current value of the input box
-    input: String,
-    /// Current input mode
-    input_mode: InputMode,
-    /// History of recorded messages
-    messages: Vec<String>,
-    channels: Vec<(Kind, String)>,
-
+    cache: InMemoryCache,
     current_channel: Option<ChannelId>,
-    channel_map: BTreeMap<ChannelId, Arc<RwLock<Channel>>>,
-    message_map: BTreeMap<MessageId, Arc<RwLock<Message>>>,
-    user_map: BTreeMap<UserId, Arc<User>>,
+    input: String,
+    input_mode: InputMode,
 }
 
 impl Default for App {
     fn default() -> App {
-        App {
-            input: String::new(),
-            input_mode: InputMode::Editing,
-            messages: vec![],
-            channels: vec![],
+        let cache = InMemoryCache::builder().message_cache_size(100).build();
+        let current_channel = None;
+        let input = String::new();
+        let input_mode = InputMode::Editing;
 
-            current_channel: None,
-            channel_map: BTreeMap::new(),
-            message_map: BTreeMap::new(),
-            user_map: BTreeMap::new(),
+        App {
+            cache,
+            current_channel,
+            input,
+            input_mode,
         }
     }
 }
@@ -184,8 +140,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-use twilight_gateway::Event as GatewayEvent2;
-
 enum ControlFlow {
     Break,
     Continue,
@@ -193,7 +147,7 @@ enum ControlFlow {
 
 async fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut shard: Arc<Shard>,
+    shard: Arc<Shard>,
     mut gateway: Pin<Box<Gateway>>,
     mut input_stream: EventStream,
     mut app: App,
@@ -216,120 +170,14 @@ async fn run_app<B: Backend>(
     }
 }
 
-use std::collections::btree_map::Entry;
-
 async fn handle_gateway<B: Backend>(
     terminal: &mut Terminal<B>,
     shard: &Shard,
     mut app: &mut App,
-    mut maybe_event: Option<GatewayEvent>,
+    maybe_event: Option<GatewayEvent>,
 ) -> Result<ControlFlow> {
-    if let Some(event) = maybe_event {
-        match event {
-            GatewayEvent::Event(GatewayEvent2::ChannelCreate(channel)) => {
-                let channel_id = channel.id();
-                let channel_name = match channel.name() {
-                    Some(name) => name,
-                    None => return Ok(ControlFlow::Continue),
-                };
-
-                let channel_name = Box::from(channel_name);
-
-                match app.channel_map.entry(channel_id) {
-                    Entry::Vacant(entry) => {
-                        let channel = Arc::new(RwLock::new(Channel {
-                            id: channel_id,
-                            messages: BTreeMap::new(),
-                            name: channel_name,
-                        }));
-
-                        entry.insert(channel);
-                    }
-                    Entry::Occupied(_entry) => {}
-                }
-            }
-            GatewayEvent::Event(GatewayEvent2::GuildCreate(guild)) => {
-                let _guild_id = guild.id;
-                let _guild_name = guild.name.clone();
-
-                for channel in guild.channels.iter() {
-                    let channel_id = channel.id();
-                    let channel_name = channel.name();
-                    let channel_name = Box::from(channel_name);
-
-                    match app.channel_map.entry(channel_id) {
-                        Entry::Vacant(entry) => {
-                            let channel = Arc::new(RwLock::new(Channel {
-                                id: channel_id,
-                                messages: BTreeMap::new(),
-                                name: channel_name,
-                            }));
-
-                            entry.insert(channel);
-                        }
-                        Entry::Occupied(_entry) => {}
-                    }
-                }
-            }
-            GatewayEvent::Event(GatewayEvent2::MessageCreate(message)) => {
-                let author_id = message.author.id;
-                let author_username = message.author.name.clone();
-
-                let channel_id = message.channel_id;
-
-                let message_content = message.content.clone();
-                let message_id = message.id;
-
-                let user = Arc::new(User {
-                    username: author_username,
-                    id: author_id,
-                });
-
-                let user2 = Arc::clone(&user);
-
-                let message = Arc::new(RwLock::new(Message {
-                    author: user2,
-                    content: message_content,
-                    id: message_id,
-                }));
-
-                let message2 = Arc::clone(&message);
-
-                match app.channel_map.entry(channel_id) {
-                    Entry::Vacant(entry) => {
-                        if let Some(channel_name) = shard
-                            .config()
-                            .http_client()
-                            .channel(channel_id)
-                            .exec()
-                            .await?
-                            .model()
-                            .await?
-                            .name()
-                        {
-                            let channel = Arc::new(RwLock::new(Channel {
-                                id: channel_id,
-                                messages: BTreeMap::new(),
-                                name: Box::from(channel_name),
-                            }));
-
-                            channel.write().messages.insert(message_id, message2);
-
-                            entry.insert(channel);
-                        }
-                    }
-                    Entry::Occupied(entry) => {
-                        entry.get().write().messages.insert(message_id, message2);
-                    }
-                }
-
-                app.message_map.insert(message_id, message);
-                app.user_map.insert(author_id, user);
-            }
-            event => {
-                app.messages.push(format!("{event:?}"));
-            }
-        }
+    if let Some(GatewayEvent::Event(event)) = maybe_event {
+        app.cache.update(&event);
     }
 
     Ok(ControlFlow::Continue)
@@ -339,7 +187,7 @@ async fn handle_input<B: Backend>(
     terminal: &mut Terminal<B>,
     shard: &Shard,
     mut app: &mut App,
-    mut maybe_event: Option<io::Result<Event>>,
+    maybe_event: Option<io::Result<Event>>,
 ) -> Result<ControlFlow> {
     if let Some(Ok(Event::Key(key))) = maybe_event {
         match app.input_mode {
@@ -352,7 +200,15 @@ async fn handle_input<B: Backend>(
             },
             InputMode::Editing => match key.code {
                 KeyCode::Enter => {
-                    let message: String = app.input.drain(..).collect();
+                    let trimmed = app.input.trim();
+
+                    if trimmed.is_empty() {
+                        return Ok(ControlFlow::Continue);
+                    }
+
+                    let message = trimmed.to_string();
+
+                    app.input.clear();
 
                     if message.starts_with('/') {
                         let command = &message[1..];
@@ -360,7 +216,7 @@ async fn handle_input<B: Backend>(
 
                         match (parts.next(), parts.next()) {
                             (Some("channel"), Some(id)) => {
-                                if let Some(id) = id.parse().ok() {
+                                if let Some(id) = id.parse::<u64>().ok() {
                                     app.current_channel = ChannelId::new(id);
                                 }
                             }
@@ -407,56 +263,61 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
         .split(frame.size());
 
     let mut channels: Vec<ListItem> = vec![];
-
-    for (id, channel) in app.channel_map.iter() {
-        let current = if let Some(channel_id) = app.current_channel.as_ref() {
-            id == channel_id
-        } else {
-            false
-        };
-
-        let name = &channel.read().name;
-        let name = if current {
-            Span::styled(format!("{}", name), Style::default().fg(Color::Yellow))
-        } else {
-            Span::raw(format!("{}", name))
-        };
-
-        let spans = Spans::from(vec![name]);
-        let item = vec![spans];
-
-        channels.push(ListItem::new(item));
-    }
-
     let channels = List::new(channels).start_corner(Corner::BottomLeft);
 
     let mut messages: Vec<ListItem> = vec![];
+    let mut iter = app
+        .current_channel
+        .as_ref()
+        .and_then(|channel_id| app.cache.channel_messages(*channel_id))
+        .into_iter()
+        .flatten();
 
-    if let Some(channel_id) = app.current_channel.as_ref() {
-        if let Some(channel) = app.channel_map.get(channel_id) {
-            for (i, (id, message)) in channel.read().messages.iter().rev().enumerate() {
-                let message = message.read();
-                let author = &message.author.username;
-                let author = Span::styled(format!("{}", author), Style::default().fg(Color::Red));
-                let timestamp = Span::styled(
-                    format!(" 69:69:69 69/69/69"),
-                    Style::default().fg(Color::DarkGray),
-                );
+    for message_id in iter {
+        if let Some(message) = app.cache.message(message_id) {
+            let author_id = message.author();
 
-                let content = &message.content;
-                let content = Span::raw(format!("{}", content));
-                //let content = Span::styled(format!("{}", content), Style::default().fg(Color::DarkGray));
+            let nickname = message.member().and_then(|member| member.nick.clone());
 
-                let author = Spans::from(vec![author, timestamp]);
-                let author = vec![author];
+            let username = app.cache.user(author_id).map(|user| user.name.clone());
+            let username = username.as_deref();
+            let username = username.unwrap_or("Unresolved").to_string();
+            let username = Span::styled(username, Style::default().fg(Color::Red));
 
-                let content = Spans::from(content);
-                let content = vec![content];
+            let dt = NaiveDateTime::from_timestamp(message.timestamp().as_secs(), 0);
+            let dt = Local.from_utc_datetime(&dt);
+            let timestamp = Span::styled(
+                dt.format("%H:%M:%S %d/%m/%Y").to_string(),
+                Style::default().fg(Color::DarkGray),
+            );
 
-                messages.push(ListItem::new("\n"));
-                messages.push(ListItem::new(content));
-                messages.push(ListItem::new(author));
-            }
+            let header = if let Some(nickname) = nickname {
+                let nickname = Span::styled(nickname, Style::default().fg(Color::Red));
+
+                Spans::from(vec![
+                    nickname,
+                    Span::raw(" ("),
+                    username,
+                    Span::raw(") "),
+                    timestamp,
+                ])
+            } else {
+                Spans::from(vec![username, Span::raw(" "), timestamp])
+            };
+
+            let content = message.content();
+            let content = Span::raw(format!("{}", content));
+            let content = if message.edited_timestamp().is_some() {
+                let edited = Span::styled("(edited)", Style::default().fg(Color::DarkGray));
+
+                Spans::from(vec![content, Span::raw(" "), edited])
+            } else {
+                Spans::from(content)
+            };
+
+            messages.push(ListItem::new("\n"));
+            messages.push(ListItem::new(content));
+            messages.push(ListItem::new(header));
         }
     }
 
