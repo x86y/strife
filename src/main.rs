@@ -1,14 +1,18 @@
+#![feature(iter_intersperse)]
+
 use chrono::{Local, NaiveDateTime, TimeZone};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyModifiers,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use discord_gateway_stream::{Gateway, GatewayEvent};
 use futures_util::stream::StreamExt;
+use std::borrow::Cow;
 use std::env;
 use std::io;
-use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use tui::backend::{Backend, CrosstermBackend};
@@ -23,7 +27,7 @@ use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 use twilight_model::gateway::payload::outgoing::update_presence::UpdatePresencePayload;
 use twilight_model::gateway::presence::Status;
 use twilight_model::gateway::Intents;
-use twilight_model::id::{ChannelId, MessageId, UserId};
+use twilight_model::id::ChannelId;
 use unicode_width::UnicodeWidthStr;
 
 enum InputMode {
@@ -117,8 +121,8 @@ async fn main() -> Result<()> {
 
     let shard = Arc::new(shard);
     let shard2 = Arc::clone(&shard);
-    let mut stream = Box::pin(Gateway::new(shard2, events));
-    let mut input_stream = EventStream::new();
+    let stream = Box::pin(Gateway::new(shard2, events));
+    let input_stream = EventStream::new();
 
     let res = run_app(&mut terminal, shard, stream, input_stream, app).await;
 
@@ -173,7 +177,7 @@ async fn run_app<B: Backend>(
 async fn handle_gateway<B: Backend>(
     terminal: &mut Terminal<B>,
     shard: &Shard,
-    mut app: &mut App,
+    app: &mut App,
     maybe_event: Option<GatewayEvent>,
 ) -> Result<ControlFlow> {
     if let Some(GatewayEvent::Event(event)) = maybe_event {
@@ -199,7 +203,7 @@ async fn handle_input<B: Backend>(
                 _ => {}
             },
             InputMode::Editing => match key.code {
-                KeyCode::Enter => {
+                KeyCode::Enter if key.modifiers == KeyModifiers::NONE => {
                     let trimmed = app.input.trim();
 
                     if trimmed.is_empty() {
@@ -234,6 +238,9 @@ async fn handle_input<B: Backend>(
                         }
                     }
                 }
+                KeyCode::Enter if key.modifiers == KeyModifiers::NONE => {
+                    app.input.push('\n');
+                }
                 KeyCode::Char(c) => {
                     app.input.push(c);
                 }
@@ -251,22 +258,73 @@ async fn handle_input<B: Backend>(
     Ok(ControlFlow::Continue)
 }
 
-fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
-    let channel_list_width = Constraint::Length(10);
-    let seperator = Constraint::Length(1);
-    let messages_list_width = Constraint::Min(1);
+use textwrap::{Options, WordSplitter};
 
-    let chunks = Layout::default()
+const SEPERATOR: Constraint = Constraint::Length(1);
+const FILL: Constraint = Constraint::Min(1);
+
+fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
+    let frame_size = frame.size();
+    let horizontal_layout = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
-        .constraints([channel_list_width, seperator, messages_list_width].as_ref())
-        .split(frame.size());
+        .constraints([Constraint::Length(16), SEPERATOR, FILL].as_ref())
+        .split(frame_size);
+
+    // maybe?
+    // let dictionary = Standard::from_embedded(Language::EnglishUS).unwrap();
+    let options = Options::new(horizontal_layout[2].width as usize)
+        .word_splitter(WordSplitter::NoHyphenation);
+
+    let textarea_content = textwrap::fill(app.input.as_str(), &options);
+    let textarea_content = textarea_content.lines().collect::<Vec<_>>();
+
+    let len = textarea_content.len().saturating_sub(1).saturating_add(1);
+
+    let textarea_height = Constraint::Length(len as u16);
+
+    let channel_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([FILL, SEPERATOR, SEPERATOR].as_ref())
+        .split(horizontal_layout[0]);
+
+    let message_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([FILL, SEPERATOR, textarea_height].as_ref())
+        .split(horizontal_layout[2]);
+
+    let channel_size = channel_layout[0];
+    let messages_size = message_layout[0];
+    let textarea_size = message_layout[2];
 
     let mut channels: Vec<ListItem> = vec![];
+
+    let iter = app.cache.iter().private_channels();
+
+    for channel in iter {
+        let name: String = channel
+            .recipients
+            .iter()
+            .flat_map(|recipient| app.cache.user(recipient.id))
+            .map(|user| Cow::Owned(format!("@{}", &user.name)))
+            .intersperse(Cow::Borrowed(", "))
+            .collect();
+
+        channels.push(ListItem::new(name));
+    }
+
+    let iter = app.cache.iter().guild_channels();
+
+    for channel in iter {
+        let name = format!("#{}", channel.name());
+
+        channels.push(ListItem::new(name));
+    }
+
     let channels = List::new(channels).start_corner(Corner::BottomLeft);
 
     let mut messages: Vec<ListItem> = vec![];
-    let mut iter = app
+    let iter = app
         .current_channel
         .as_ref()
         .and_then(|channel_id| app.cache.channel_messages(*channel_id))
@@ -321,29 +379,27 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
         }
     }
 
-    let message_list_height = Constraint::Min(1);
-    let textarea_height = Constraint::Length(1);
-
-    let chunks2 = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([message_list_height, seperator, textarea_height].as_ref())
-        .split(chunks[0]);
-
-    let chunks3 = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([message_list_height, seperator, textarea_height].as_ref())
-        .split(chunks[2]);
-
     let messages = List::new(messages).start_corner(Corner::BottomLeft);
+
     let textarea = if app.input.is_empty() {
-        Paragraph::new("message").style(Style::default().fg(Color::DarkGray))
+        Paragraph::new("message\n").style(Style::default().fg(Color::DarkGray))
     } else {
-        Paragraph::new(&*app.input)
+        let text = textarea_content
+            .iter()
+            .map(|line| Spans::from(format!("{}\n", &line)))
+            .collect::<Vec<_>>();
+
+        Paragraph::new(text)
     };
 
-    frame.render_widget(channels, chunks2[0]);
-    frame.render_widget(messages, chunks3[0]);
-    frame.render_widget(textarea, chunks3[2]);
+    frame.render_widget(channels, channel_size);
+    frame.render_widget(messages, messages_size);
+    frame.render_widget(textarea, textarea_size);
 
-    frame.set_cursor(chunks3[2].x + app.input.width() as u16, chunks3[2].y);
+    if let Some(last) = textarea_content.last() {
+        frame.set_cursor(
+            textarea_size.x + last.width() as u16,
+            textarea_size.y + textarea_content.len() as u16 - 1,
+        );
+    }
 }

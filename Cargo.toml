@@ -50,28 +50,30 @@ version = "0.12"
 default-features = false
 version = "0.1"
 
+[dependencies.textwrap]
+version = "0.15"
+
 [dependencies.twilight-cache-inmemory]
+branch = "user"
 default-features = false
 git = "https://github.com/mov-rax-rax/twilight.git"
-branch = "user"
 
 [dependencies.twilight-gateway]
+branch = "user"
 default-features = false
 features = ["compression", "rustls", "tracing", "zlib-simd"]
 git = "https://github.com/mov-rax-rax/twilight.git"
-branch = "user"
 
 [dependencies.twilight-http]
+branch = "user"
 default-features = false
 features = ["rustls", "tracing"]
-#git = "https://github.com/mov-rax-rax/twilight.git"
-#branch = "user"
-path = "../twilight/http"
+git = "https://github.com/mov-rax-rax/twilight.git"
 
 [dependencies.twilight-model]
+branch = "user"
 default-features = false
 git = "https://github.com/mov-rax-rax/twilight.git"
-branch = "user"
 
 [features]
 compression = ["twilight-gateway/compression"]
