@@ -361,17 +361,34 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
             };
 
             let content = message.content();
-            let content = Span::raw(format!("{}", content));
-            let content = if message.edited_timestamp().is_some() {
-                let edited = Span::styled("(edited)", Style::default().fg(Color::DarkGray));
+            let content = textwrap::fill(&content, &options);
+            let mut content = content
+                .lines()
+                .map(|line| vec![Span::raw(line.to_string())])
+                .rev()
+                .collect::<Vec<Vec<_>>>();
 
-                Spans::from(vec![content, Span::raw(" "), edited])
-            } else {
-                Spans::from(content)
-            };
+            if message.edited_timestamp().is_some() {
+                if let Some(last) = content.first_mut() {
+                    last.push(Span::raw(" "));
+                    last.push(Span::styled(
+                        "(edited)",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                } else {
+                    content.push(vec![Span::styled(
+                        "(edited)",
+                        Style::default().fg(Color::DarkGray),
+                    )]);
+                }
+            }
 
             messages.push(ListItem::new("\n"));
-            messages.push(ListItem::new(content));
+
+            for line in content.into_iter() {
+                messages.push(ListItem::new(Spans::from(line)));
+            }
+
             messages.push(ListItem::new(header));
         }
     }
@@ -394,6 +411,9 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
     frame.render_widget(textarea, textarea_size);
 
     if let Some(last) = textarea_content.last() {
+        let trailing_whitespace = &app.input[app.input.trim_end_matches(' ').len()..];
+        let last = format!("{last}{trailing_whitespace}");
+
         frame.set_cursor(
             textarea_size.x + last.width() as u16,
             textarea_size.y + textarea_content.len() as u16 - 1,
