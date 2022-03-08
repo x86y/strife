@@ -1,5 +1,3 @@
-#![feature(iter_intersperse)]
-
 use chrono::{Local, NaiveDateTime, TimeZone};
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyModifiers,
@@ -10,7 +8,6 @@ use crossterm::terminal::{
 };
 use discord_gateway_stream::{Gateway, GatewayEvent};
 use futures_util::stream::StreamExt;
-use std::borrow::Cow;
 use std::env;
 use std::io;
 use std::pin::Pin;
@@ -302,13 +299,13 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
     let iter = app.cache.iter().private_channels();
 
     for channel in iter {
-        let name: String = channel
+        let name = channel
             .recipients
             .iter()
             .flat_map(|recipient| app.cache.user(recipient.id))
-            .map(|user| Cow::Owned(format!("@{}", &user.name)))
-            .intersperse(Cow::Borrowed(", "))
-            .collect();
+            .map(|user| format!("@{}", &user.name))
+            .collect::<Vec<_>>()
+            .join(", ");
 
         channels.push(ListItem::new(name));
     }
