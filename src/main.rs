@@ -27,6 +27,8 @@ use twilight_model::gateway::Intents;
 use twilight_model::id::ChannelId;
 use unicode_width::UnicodeWidthStr;
 
+mod render_message;
+
 enum InputMode {
     Normal,
     Editing,
@@ -361,6 +363,8 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
             };
 
             let content = message.content();
+            let rendered_content = render_message::render_message(&content, &options);
+
             let content = textwrap::fill(&content, &options);
             let mut content = content
                 .lines()
@@ -383,12 +387,7 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
                 }
             }
 
-            messages.push(ListItem::new("\n"));
-
-            for line in content.into_iter() {
-                messages.push(ListItem::new(Spans::from(line)));
-            }
-
+            messages.extend(rendered_content.into_iter().rev());
             messages.push(ListItem::new(header));
         }
     }
