@@ -5,7 +5,7 @@ version = "0.0.0"
 
 [dependencies.discord-gateway-stream]
 default-features = false
-git = "https://github.com/mov-rax-rax/discord-gateway-stream"
+git = "https://github.com/elysian6969/discord-gateway-stream"
 
 [dependencies.futures-util]
 default-features = false
@@ -59,24 +59,24 @@ version = "0.15"
 [dependencies.twilight-cache-inmemory]
 branch = "user"
 default-features = false
-git = "https://github.com/mov-rax-rax/twilight.git"
+git = "https://github.com/elysian6969/twilight"
 
 [dependencies.twilight-gateway]
 branch = "user"
 default-features = false
 features = ["compression", "rustls", "tracing", "zlib-simd"]
-git = "https://github.com/mov-rax-rax/twilight.git"
+git = "https://github.com/elysian6969/twilight"
 
 [dependencies.twilight-http]
 branch = "user"
 default-features = false
 features = ["rustls", "tracing"]
-git = "https://github.com/mov-rax-rax/twilight.git"
+git = "https://github.com/elysian6969/twilight"
 
 [dependencies.twilight-model]
 branch = "user"
 default-features = false
-git = "https://github.com/mov-rax-rax/twilight.git"
+git = "https://github.com/elysian6969/twilight"
 
 [features]
 compression = ["twilight-gateway/compression"]

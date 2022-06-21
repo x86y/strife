@@ -64,6 +64,8 @@ mod log;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    let token = env::var("DISCORD_TOKEN")?;
+
     // Setup logging to `$CARGO_MANIFEST_DIR/log`.
     let logger = log::Logger::new()?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(logger);
@@ -86,7 +88,6 @@ async fn main() -> Result<()> {
     // create app and run it
     let mut app = App::default();
 
-    let token = env::var("DISCORD_TOKEN")?;
     let intents = Intents::GUILD_MESSAGES;
 
     // 115.4 - Beta on a S10 5G running Android 12.
