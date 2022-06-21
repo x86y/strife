@@ -1,4 +1,3 @@
-use chrono::{Local, NaiveDateTime, TimeZone};
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyModifiers,
 };
@@ -20,14 +19,17 @@ use tui::widgets::{List, ListItem, Paragraph};
 use tui::{Frame, Terminal};
 use twilight_cache_inmemory::InMemoryCache;
 use twilight_gateway::Shard;
-use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 use twilight_model::gateway::payload::outgoing::update_presence::UpdatePresencePayload;
 use twilight_model::gateway::presence::Status;
 use twilight_model::gateway::Intents;
 use twilight_model::id::ChannelId;
 use unicode_width::UnicodeWidthStr;
 
+#[allow(dead_code)]
+mod identify;
+mod log;
 mod render_message;
+mod time;
 
 enum InputMode {
     Normal,
@@ -60,8 +62,6 @@ impl Default for App {
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-mod log;
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let token = env::var("DISCORD_TOKEN")?;
@@ -84,33 +84,14 @@ async fn main() -> Result<()> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
-    // create app and run it
     let mut app = App::default();
 
     let intents = Intents::GUILD_MESSAGES;
-
-    // 115.4 - Beta on a S10 5G running Android 12.
-    pub const ANDROID_CLIENT_VERSION: &str = "115.4 - Beta";
-    pub const ANDROID_CLIENT_BUILD_NUMBER: &str = "115104";
-    pub const ANDROID_DEVICE: &str = "SM-G977B, beyondx";
-    pub const ANDROID_OS_SDK_VERSION: u8 = 31;
-
-    // Linux stable.
-    pub const LINUX_OS_VERSION: &str = "5.16.11";
-
-    let identify_properties = IdentifyProperties::default().android(
-        ANDROID_CLIENT_VERSION,
-        ANDROID_CLIENT_BUILD_NUMBER,
-        ANDROID_DEVICE,
-        ANDROID_OS_SDK_VERSION,
-    );
-
-    let identify_properties = IdentifyProperties::default().linux(LINUX_OS_VERSION);
+    let identify = identify::linux().finish();
 
     let (shard, events) = Shard::builder(token, intents)
         .gateway_url(Some("wss://gateway.discord.gg".to_string()))
-        .identify_properties(identify_properties)
+        .identify_properties(identify)
         .presence(UpdatePresencePayload::new(
             vec![],
             false,
@@ -342,10 +323,8 @@ fn ui<B: Backend>(frame: &mut Frame<B>, app: &App) {
             let username = username.unwrap_or("Unresolved").to_string();
             let username = Span::styled(username, Style::default().fg(Color::Red));
 
-            let dt = NaiveDateTime::from_timestamp(message.timestamp().as_secs(), 0);
-            let dt = Local.from_utc_datetime(&dt);
             let timestamp = Span::styled(
-                dt.format("%H:%M:%S %d/%m/%Y").to_string(),
+                time::timestamp_to_string(message.timestamp()),
                 Style::default().fg(Color::DarkGray),
             );
 
