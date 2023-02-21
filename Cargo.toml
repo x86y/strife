@@ -3,89 +3,38 @@ edition = "2021"
 name = "discord-client"
 version = "0.0.0"
 
-[dependencies.discord-gateway-stream]
-default-features = false
-git = "https://github.com/elysian6969/discord-gateway-stream"
-
-[dependencies.futures-util]
-default-features = false
-version = "0.3"
-
-[dependencies.tokio]
-default-features = false
-features = ["macros", "rt", "sync", "time"]
-version = "1.0"
-
-[dependencies.tracing]
-default-features = false
-features = ["std", "attributes"]
-version = "0.1"
-
-[dependencies.tracing-appender]
-default-features = false
-version = "0.2"
-
-[dependencies.tracing-subscriber]
-default-features = false
-features = ["ansi", "fmt", "env-filter", "std"]
-version = "0.3"
-
-[dependencies.chrono]
-version = "0.4"
-
-[dependencies.discord-markdown]
-version = "0.1"
-
-[dependencies.crossterm]
-default-features = false
-features = ["event-stream"]
-version = "0.22"
-
-[dependencies.tui]
-default-features = false
-features = ["crossterm"]
-version = "0.17"
-
-[dependencies.parking_lot]
-version = "0.12"
-
-[dependencies.unicode-width]
-default-features = false
-version = "0.1"
-
-[dependencies.textwrap]
-version = "0.15"
-
-[dependencies.twilight-cache-inmemory]
-branch = "user"
-default-features = false
-git = "https://github.com/elysian6969/twilight"
-
-[dependencies.twilight-gateway]
-branch = "user"
-default-features = false
-features = ["compression", "rustls", "tracing", "zlib-simd"]
-git = "https://github.com/elysian6969/twilight"
-
-[dependencies.twilight-http]
-branch = "user"
-default-features = false
-features = ["rustls", "tracing"]
-git = "https://github.com/elysian6969/twilight"
-
-[dependencies.twilight-model]
-branch = "user"
-default-features = false
-git = "https://github.com/elysian6969/twilight"
+[dependencies]
+_tui = { default-features = false, features = ["crossterm"], optional = true, package = "tui", version = "0.19.0" }
+bytes = { default-features = false, features = ["std"], version = "1.4.0" }
+crossterm = { default-features = false, features = ["event-stream"], optional = true, version = "0.26.0" }
+eframe = { default-features = false, features = ["accesskit", "dark-light", "default_fonts"], optional = true, version = "0.21.3" }
+futures-util = { default-features = false, features = ["std"], version = "0.3.26" }
+html-escape = { default-features = false, features = ["std"], version = "0.2.13" }
+hyper = { default-features = false, features = ["client", "http1", "http2", "runtime", "stream", "tcp"], version = "0.14.24" }
+hyper-rustls = { default-features = false, version = "0.23.2" }
+hyper-trust-dns = { default-features = false, features = ["dns-over-https-rustls", "rustls-http2", "rustls-webpki"], version = "0.5.0" }
+nipper = { default-features = false, version = "0.1.9" }
+serde = { default-features = false, features = ["derive", "std"], version = "1.0.152" }
+serde_json = { default-features = false, features = ["std"], version = "1.0.93" }
+textwrap = { default-features = false, optional = true, version = "0.16.0" }
+tokio = { default-features = false, features = ["macros", "rt"], version = "1.25.0" }
+tracing = { default-features = false, features = ["std"], version = "0.1.37" }
+tracing-subscriber = { default-features = false, features = ["ansi", "fmt", "parking_lot", "smallvec", "std"], version = "0.3.1" }
+twilight-cache-inmemory = { default-features = false, version = "0.15.0" }
+twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], version = "0.15.0" }
+twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], version = "0.15.0" }
+twilight-mention = { default-features = false, version = "0.15.0" }
+twilight-model = { default-features = false, version = "0.15.0" }
+twilight-validate = { default-features = false, version = "0.15.0" }
+url = { default-features = false, features = ["serde"], version = "2.3.1" }
 
 [features]
-compression = ["twilight-gateway/compression"]
-default = ["decompression", "compression", "rustls"]
-decompression = ["twilight-http/decompression"]
-native = ["twilight-gateway/native", "twilight-http/native"]
-rustls = ["twilight-gateway/rustls", "twilight-http/rustls"]
-rustls-native-roots = ["twilight-gateway/rustls-native-roots", "twilight-http/rustls-native-roots"]
-rustls-webpki-roots = ["twilight-gateway/rustls-webpki-roots", "twilight-http/rustls-webpki-roots"]
-trust-dns = ["twilight-http/trust-dns"]
-zlib-stock = ["twilight-gateway/zlib-stock"]
-zlib-simd = ["twilight-gateway/zlib-simd"]
+gui = ["eframe"]
+gui_glow = ["gui", "eframe/glow"]
+gui_wgpu = ["gui", "eframe/wgpu"]
+tui = ["dep:crossterm", "dep:textwrap", "dep:_tui"]
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+strip = "symbols"
