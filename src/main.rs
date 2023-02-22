@@ -16,6 +16,6 @@ pub async fn main() {
 
     #[cfg(feature = "tui")]
     {
-        tui::run().await;
+        tui::run().await.unwrap();
     }
 }

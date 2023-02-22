@@ -1,138 +1,82 @@
-use crate::{discord::Client, time};
-use _tui::{
-    backend::CrosstermBackend,
+use self::terminal::{
     layout::{Constraint, Corner, Layout, Rect},
     style::{Color, Style},
     text::{Span, Spans, Text},
     widgets::{List, ListItem, Paragraph},
     Terminal,
 };
-use crossterm::{
-    event::{self, Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
-    execute, terminal,
-};
+use crate::{discord::Client, time};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use futures_util::{FutureExt, StreamExt};
 use std::collections::VecDeque;
-use std::{borrow::Cow, future::IntoFuture, io, mem};
+use std::{borrow::Cow, future::IntoFuture, io};
+use twilight_cache_inmemory::model::CachedMessage;
 use twilight_http::{response::ResponseFuture, Response};
-use twilight_model::{channel::Message, id::Id};
+use twilight_model::{channel::Message, id::Id, user::User};
 
-pub struct Application<'a> {
+pub mod terminal;
+
+pub struct App {
     create_message_queue: CreateMessageQueue,
     channel_query: Option<String>,
-    damaged: bool,
     discord: Client,
     event_stream: EventStream,
     message: String,
-    terminal: Terminal<CrosstermBackend<io::StdoutLock<'a>>>,
+    terminal: Terminal,
 }
 
-impl<'a> Application<'a> {
+impl App {
     /// Construct a new aplication.
     pub fn new() -> io::Result<Self> {
-        let stdout = io::stdout().lock();
-        let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend)?;
         // TODO: login screen.
         let token = std::env::var("DISCORD_TOKEN").unwrap();
 
-        let mut app = Self {
+        Ok(Self {
             create_message_queue: CreateMessageQueue::default(),
             channel_query: None,
-            damaged: true,
             discord: Client::new(token),
             event_stream: EventStream::new(),
             message: String::new(),
-            terminal,
-        };
-
-        app.enable_application_mode()?;
-
-        Ok(app)
-    }
-
-    /// Enable application mode.
-    pub fn enable_application_mode(&mut self) -> io::Result<()> {
-        terminal::enable_raw_mode()?;
-
-        execute!(
-            self.terminal.backend_mut(),
-            terminal::EnterAlternateScreen,
-            event::EnableBracketedPaste,
-            event::EnableFocusChange,
-            event::EnableMouseCapture,
-        )?;
-
-        Ok(())
-    }
-
-    /// Disable application mode.
-    pub fn disable_application_mode(&mut self) -> io::Result<()> {
-        execute!(
-            self.terminal.backend_mut(),
-            event::DisableBracketedPaste,
-            event::DisableFocusChange,
-            event::DisableMouseCapture,
-            terminal::LeaveAlternateScreen,
-        )?;
-
-        terminal::disable_raw_mode()?;
-
-        Ok(())
-    }
-
-    /// Mark that the UI requires updating.
-    pub fn damage(&mut self) {
-        self.damaged = true;
-    }
-
-    /// Return whether the UI required updating.
-    pub fn take_damage(&mut self) -> bool {
-        mem::take(&mut self.damaged)
+            terminal: Terminal::new()?,
+        })
     }
 
     /// Main event loop.
     pub async fn run(&mut self) -> io::Result<()> {
         loop {
-            if self.discord.take_message_cache_damage() {
-                self.damage();
-            }
+            self.terminal.render(|frame| {
+                let size = frame.size();
 
-            if self.take_damage() {
-                self.terminal.draw(|frame| {
-                    let size = frame.size();
+                let layout = Layout::default()
+                    .constraints([
+                        Constraint::Min(0),
+                        Constraint::Length(1),
+                        Constraint::Length(1),
+                    ])
+                    .split(size);
 
-                    let layout = Layout::default()
-                        .constraints([
-                            Constraint::Min(0),
-                            Constraint::Length(1),
-                            Constraint::Length(1),
-                        ])
-                        .split(size);
+                let list = message_list(&self.discord, layout[0]);
+                let text = if self.message.is_empty() {
+                    let style = Style::default().fg(Color::Gray);
 
-                    let list = message_list(&self.discord, layout[0]);
-                    let text = if self.message.is_empty() {
-                        let style = Style::default().fg(Color::Gray);
+                    Paragraph::new(Text::styled("message", style))
+                } else {
+                    Paragraph::new(self.message.as_str())
+                };
 
-                        Paragraph::new(Text::styled("message", style))
-                    } else {
-                        Paragraph::new(self.message.as_str())
-                    };
+                /*let list = self
+                    .discord
+                    .search_channel(&self.message)
+                    .into_iter()
+                    .map(|(name, id)| ListItem::new(format!("{name} {id}")))
+                    .collect::<Vec<_>>();
 
-                    /*let list = self
-                        .discord
-                        .search_channel(&self.message)
-                        .into_iter()
-                        .map(|(name, id)| ListItem::new(format!("{name} {id}")))
-                        .collect::<Vec<_>>();
+                let list = List::new(list);*/
 
-                    let list = List::new(list);*/
-
-                    frame.render_widget(list, layout[0]);
-                    frame.render_widget(text, layout[2]);
-                    frame.set_cursor(layout[2].x + self.message.len() as u16, layout[2].y);
-                })?;
-            }
+                frame.render_widget(list, layout[0]);
+                frame.render_widget(text, layout[2]);
+                frame.set_cursor(layout[2].x + self.message.len() as u16, layout[2].y);
+            })?;
 
             let discord_event = self.discord.next_event();
             let input_event = self.event_stream.next().fuse();
@@ -140,11 +84,15 @@ impl<'a> Application<'a> {
 
             tokio::select! {
                 _result = create_message_queue => {},
-                _maybe_event = discord_event => {}
+                _maybe_event = discord_event => {
+                    if self.discord.take_message_cache_damage() {
+                        self.terminal.damage();
+                    }
+                }
                 maybe_event = input_event => {
                     match maybe_event {
                         Some(Ok(event)) => {
-                            if !self.process_event(event).await {
+                            if !self.process_event(event) {
                                 break;
                             }
                         },
@@ -161,7 +109,7 @@ impl<'a> Application<'a> {
     }
 
     /// Process an input event.
-    pub async fn process_event(&mut self, event: Event) -> bool {
+    pub fn process_event(&mut self, event: Event) -> bool {
         // Refer to https://github.com/crossterm-rs/crossterm/issues/685 for what we can do here.
         match event {
             Event::Key(KeyEvent {
@@ -191,24 +139,24 @@ impl<'a> Application<'a> {
                     }
 
                     self.message.clear();
-                    self.damage();
+                    self.terminal.damage();
                 }
                 KeyCode::Char(character) => {
                     self.message.push(character);
-                    self.damage();
+                    self.terminal.damage();
                 }
                 KeyCode::Backspace => {
                     self.message.pop();
-                    self.damage();
+                    self.terminal.damage();
                 }
                 _ => {}
             },
             Event::Paste(text) => {
                 self.message.push_str(&text);
-                self.damage();
+                self.terminal.damage();
             }
             Event::Resize(_width, _height) => {
-                self.damage();
+                self.terminal.damage();
             }
             _ => {}
         }
@@ -217,17 +165,13 @@ impl<'a> Application<'a> {
     }
 }
 
-impl<'a> Drop for Application<'a> {
-    fn drop(&mut self) {
-        let _ = self.disable_application_mode();
-    }
-}
-
 /// Run the TUI version of strife.
-pub async fn run() {
-    let mut app = Application::new().unwrap();
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let mut app = App::new()?;
 
-    app.run().await.unwrap();
+    app.run().await?;
+
+    Ok(())
 }
 
 /// Render the entire message list.
@@ -250,13 +194,18 @@ pub fn message_list(discord: &Client, size: Rect) -> List<'static> {
             let user = discord.cache.user(author_id).unwrap();
             let timestamp_style = Style::default().fg(Color::Gray);
 
+            let was_none = last_id.is_none();
             let show_header = !last_id
                 .replace(author_id)
                 .map(|old_author_id| old_author_id == author_id)
                 .unwrap_or_default();
 
             if show_header {
-                let mut header = vec![Span::raw(user.name.clone()), Span::raw(" ")];
+                if !was_none {
+                    items.push(ListItem::new(" "));
+                }
+
+                let mut header = vec![username(discord, &message, &user), Span::raw(" ")];
                 let timestamp = time::display_timestamp(message.timestamp());
 
                 header.push(Span::styled(timestamp, timestamp_style));
@@ -291,6 +240,41 @@ pub fn message_list(discord: &Client, size: Rect) -> List<'static> {
     items.reverse();
 
     List::new(items).start_corner(Corner::BottomLeft)
+}
+
+/// Render a username.
+pub fn username(discord: &Client, message: &CachedMessage, user: &User) -> Span<'static> {
+    let mut style = Style::default();
+
+    if let Some(color) = user.accent_color.map(u32_to_color) {
+        style = style.fg(color);
+    }
+
+    let Some(member) = message.member() else {
+        return Span::styled(user.name.clone(), style);
+    };
+
+    let name = member.nick.clone().unwrap_or_else(|| user.name.clone());
+
+    let last_role = member
+        .roles
+        .iter()
+        .flat_map(|role_id| discord.cache.role(*role_id))
+        .filter(|role| role.color != 0)
+        .last();
+
+    if let Some(role) = last_role {
+        style = style.fg(u32_to_color(role.color));
+    }
+
+    Span::styled(name, style)
+}
+
+/// Convert a u32 colour code to a [`Color`](Color).
+pub fn u32_to_color(color: u32) -> Color {
+    let [r, g, b, _a] = color.to_ne_bytes();
+
+    Color::Rgb(r, g, b)
 }
 
 /// Attempt to declutter above code.
