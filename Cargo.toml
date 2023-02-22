@@ -11,24 +11,17 @@ crossterm = { default-features = false, features = ["bracketed-paste", "event-st
 eframe = { default-features = false, features = ["accesskit", "dark-light"], optional = true, version = "0.21.3" }
 fst = { default-features = false, features = ["levenshtein"], version = "0.4.7" }
 futures-util = { default-features = false, features = ["std"], version = "0.3.26" }
-html-escape = { default-features = false, features = ["std"], version = "0.2.13" }
-hyper = { default-features = false, features = ["client", "http1", "http2", "runtime", "stream", "tcp"], version = "0.14.24" }
-hyper-rustls = { default-features = false, version = "0.23.2" }
-hyper-trust-dns = { default-features = false, features = ["dns-over-https-rustls", "rustls-http2", "rustls-webpki"], version = "0.5.0" }
-nipper = { default-features = false, version = "0.1.9" }
-serde = { default-features = false, features = ["derive", "std"], version = "1.0.152" }
-serde_json = { default-features = false, features = ["std"], version = "1.0.93" }
 textwrap = { default-features = false, features = ["unicode-linebreak", "unicode-width"], optional = true, version = "0.16.0" }
 time = { default-features = false, features = ["formatting", "macros", "parsing", "std"], version = "0.3.19" }
 tokio = { default-features = false, features = ["macros", "rt"], version = "1.25.0" }
 tracing = { default-features = false, features = ["std"], version = "0.1.37" }
 tracing-subscriber = { default-features = false, features = ["ansi", "fmt", "parking_lot", "smallvec", "std"], version = "0.3.1" }
-twilight-cache-inmemory = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
-twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
-twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
-twilight-mention = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
-twilight-model = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
-twilight-validate = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-cache-inmemory = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
+twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
+twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
+twilight-mention = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
+twilight-model = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
+twilight-validate = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "3d3b348afbb2dc0c443a2a75a729cbf1d2308530" }
 url = { default-features = false, features = ["serde"], version = "2.3.1" }
 
 [features]

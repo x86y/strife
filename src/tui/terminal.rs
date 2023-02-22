@@ -1,6 +1,6 @@
 use _tui::backend;
 use crossterm::{event, terminal};
-use std::{io, mem};
+use std::{env, io, mem};
 
 pub use _tui::{layout, style, text, widgets, Frame};
 
@@ -32,6 +32,10 @@ impl Terminal {
     /// Enables raw terminal processing, bracketed pasting,
     /// focus detction, and mouse event processing.
     pub fn enable_app_mode(&mut self) -> io::Result<()> {
+        if env::var("STRIFE_DEBUG").is_ok() {
+            return Ok(());
+        }
+
         terminal::enable_raw_mode()?;
 
         crossterm::execute!(
@@ -47,6 +51,10 @@ impl Terminal {
     ///
     /// Reverts all things enabled by [`enable_app_mode`](Self::enable_app_mode).
     pub fn disable_app_mode(&mut self) -> io::Result<()> {
+        if env::var("STRIFE_DEBUG").is_ok() {
+            return Ok(());
+        }
+
         crossterm::execute!(
             self.terminal.backend_mut(),
             event::DisableBracketedPaste,

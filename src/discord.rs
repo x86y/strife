@@ -2,13 +2,15 @@ use fst::{
     automaton::{Automaton, Levenshtein, StartsWith, Str, Union},
     IntoStreamer, Map, Streamer,
 };
-use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 use twilight_cache_inmemory::InMemoryCache;
-use twilight_gateway::{error::ReceiveMessageError, Event, Intents, Shard as Gateway, ShardId};
+use twilight_gateway::{
+    error::ReceiveMessageError, Config, Event, Intents, Shard as Gateway, ShardId,
+};
 use twilight_http::Client as Rest;
 use twilight_model::{
     channel::ChannelType,
+    gateway::{payload::outgoing::update_presence::UpdatePresencePayload, presence::Status},
     id::{marker::ChannelMarker, Id},
 };
 
@@ -42,8 +44,16 @@ impl Client {
     pub fn new(token: impl Into<String>) -> Self {
         let token = token.into();
         let rest = Rest::new(token.clone());
-        // TODO: user accounts do not use intents.
-        let gateway = Gateway::new(ShardId::ONE, token, Intents::all());
+        let config = Config::builder(token, Intents::empty())
+            .presence(UpdatePresencePayload {
+                activities: Vec::new(),
+                afk: false,
+                since: None,
+                status: Status::DoNotDisturb,
+            })
+            .build();
+
+        let gateway = Gateway::with_config(ShardId::ONE, config);
 
         Self {
             cache: InMemoryCache::default(),
@@ -57,7 +67,13 @@ impl Client {
 
     /// Process the next event.
     pub async fn next_event(&mut self) -> Result<Event, ReceiveMessageError> {
-        let event = self.gateway.next_event().await?;
+        let event = self.gateway.next_event().await.map_err(|error| {
+            if std::env::var("STRIFE_DEBUG").is_ok() {
+                println!("{error:?}");
+            }
+
+            error
+        })?;
 
         self.cache.update(&event);
 
