@@ -1,13 +1,15 @@
 [package]
 edition = "2021"
-name = "discord-client"
+name = "strife"
 version = "0.0.0"
 
 [dependencies]
 _tui = { default-features = false, features = ["crossterm"], optional = true, package = "tui", version = "0.19.0" }
+bitflags = { default-features = false, version = "1.3.2" }
 bytes = { default-features = false, features = ["std"], version = "1.4.0" }
-crossterm = { default-features = false, features = ["event-stream"], optional = true, version = "0.26.0" }
-eframe = { default-features = false, features = ["accesskit", "dark-light", "default_fonts"], optional = true, version = "0.21.3" }
+crossterm = { default-features = false, features = ["bracketed-paste", "event-stream"], optional = true, version = "0.26.0" }
+eframe = { default-features = false, features = ["accesskit", "dark-light"], optional = true, version = "0.21.3" }
+fst = { default-features = false, features = ["levenshtein"], version = "0.4.7" }
 futures-util = { default-features = false, features = ["std"], version = "0.3.26" }
 html-escape = { default-features = false, features = ["std"], version = "0.2.13" }
 hyper = { default-features = false, features = ["client", "http1", "http2", "runtime", "stream", "tcp"], version = "0.14.24" }
@@ -16,23 +18,28 @@ hyper-trust-dns = { default-features = false, features = ["dns-over-https-rustls
 nipper = { default-features = false, version = "0.1.9" }
 serde = { default-features = false, features = ["derive", "std"], version = "1.0.152" }
 serde_json = { default-features = false, features = ["std"], version = "1.0.93" }
-textwrap = { default-features = false, optional = true, version = "0.16.0" }
+textwrap = { default-features = false, features = ["unicode-linebreak", "unicode-width"], optional = true, version = "0.16.0" }
+time = { default-features = false, features = ["formatting", "macros", "parsing", "std"], version = "0.3.19" }
 tokio = { default-features = false, features = ["macros", "rt"], version = "1.25.0" }
 tracing = { default-features = false, features = ["std"], version = "0.1.37" }
 tracing-subscriber = { default-features = false, features = ["ansi", "fmt", "parking_lot", "smallvec", "std"], version = "0.3.1" }
-twilight-cache-inmemory = { default-features = false, version = "0.15.0" }
-twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], version = "0.15.0" }
-twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], version = "0.15.0" }
-twilight-mention = { default-features = false, version = "0.15.0" }
-twilight-model = { default-features = false, version = "0.15.0" }
-twilight-validate = { default-features = false, version = "0.15.0" }
+twilight-cache-inmemory = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-mention = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-model = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
+twilight-validate = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "a1ef859b6f577a8a96ef33a92af8da04b7040491" }
 url = { default-features = false, features = ["serde"], version = "2.3.1" }
 
 [features]
+default = ["tui"]
 gui = ["eframe"]
 gui_glow = ["gui", "eframe/glow"]
 gui_wgpu = ["gui", "eframe/wgpu"]
 tui = ["dep:crossterm", "dep:textwrap", "dep:_tui"]
+
+[profile.dev]
+opt-level = 2
 
 [profile.release]
 codegen-units = 1

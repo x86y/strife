@@ -1,3 +1,6 @@
+pub mod discord;
+pub mod time;
+
 #[cfg(feature = "gui")]
 pub mod gui;
 
