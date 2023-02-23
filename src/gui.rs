@@ -1,12 +1,12 @@
 use crate::config::Config;
 use crate::discord::Client;
 use crate::time::display_timestamp;
-use eframe::egui;
+use eframe::egui::{self, scroll_area};
 use egui::FontFamily;
 use egui::{Color32, FontId, RichText};
 use std::env;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use twilight_model::id::Id;
 
 #[derive(Debug, Default)]
@@ -35,10 +35,20 @@ pub async fn run() -> Result<(), eframe::Error> {
         options,
         Box::new(move |cc| {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
-            let app = Application::new(cc, rx);
+            let (txp, mut rxp) = tokio::sync::mpsc::channel(1);
+            let app = Application::new(cc, txp, rx);
             std::thread::spawn(move || {
                 h.block_on(async move {
                     loop {
+                        if let Ok(send_val) = rxp.try_recv() {
+                            dc.rest
+                                .create_message(dc.current_channel.unwrap())
+                                .content(&send_val)
+                                .unwrap()
+                                .await
+                                .unwrap();
+                        };
+
                         let _ = dc.next_event().await;
                         let Some(current_channel) = dc.current_channel else {
                             continue;
@@ -52,6 +62,7 @@ pub async fn run() -> Result<(), eframe::Error> {
                             (Vec::new(), None),
                             |(mut items, mut last_id), message_id| {
                                 let message = dc.cache.message(*message_id).unwrap();
+                                let last = message.content().to_string();
                                 let author_id = message.author();
                                 let user = dc.cache.user(author_id).unwrap();
                                 let name = message
@@ -66,20 +77,18 @@ pub async fn run() -> Result<(), eframe::Error> {
                                     .unwrap_or_default();
                                 let mut m = DcMessage {
                                     username: name,
+                                    content: last,
                                     ..Default::default()
                                 };
                                 if show_header {
                                     m.is_header = true;
                                     m.timestamp = display_timestamp(message.timestamp());
                                 }
-                                let last = message.content().to_string();
                                 if let Some(timestamp) = message.edited_timestamp() {
                                     let edited_timestamp = display_timestamp(timestamp);
                                     m.edited = true;
                                     m.timestamp = edited_timestamp;
-                                } else {
-                                    m.content = last;
-                                };
+                                }
                                 items.push(m);
                                 (items, last_id)
                             },
@@ -113,17 +122,23 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 struct Application {
-    message: String,
+    input_val: String,
     messages: DcMessages,
+    txp: Sender<String>,
     rx: Receiver<DcMessages>,
 }
 
 impl Application {
-    fn new(cc: &eframe::CreationContext<'_>, rx: Receiver<DcMessages>) -> Self {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        txp: Sender<String>,
+        rx: Receiver<DcMessages>,
+    ) -> Self {
         setup_fonts(&cc.egui_ctx);
         Self {
-            message: String::new(),
+            input_val: String::new(),
             messages: vec![],
+            txp,
             rx,
         }
     }
@@ -152,16 +167,24 @@ fn msg(ui: &mut egui::Ui, m: &DcMessage) {
     });
 }
 
-fn input(ui: &mut egui::Ui, val: &mut String) {
+fn input(ui: &mut egui::Ui, val: &mut String, txp: &mut Sender<String>) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        ui.add(
-            egui::TextEdit::multiline(val)
+        let multiline = ui.add(
+            egui::TextEdit::singleline(val)
                 .code_editor()
                 .font(FontId::new(24.0, FontFamily::Proportional)) // for cursor height
                 .desired_rows(1)
                 .desired_width(f32::INFINITY)
                 .margin(egui::Vec2 { x: 0.0, y: 8.0 }),
         );
+        if multiline.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // hopeless ??
+            let valc = val.clone();
+            let txpc = txp.clone();
+            tokio::spawn(async move {
+                txpc.send(valc).await.unwrap();
+            });
+        }
     });
 }
 
@@ -174,12 +197,14 @@ impl eframe::App for Application {
         if let Ok(ms) = self.rx.try_recv() {
             self.messages = ms;
         }
-        if !self.messages.is_empty() {
+        if self.messages.is_empty() {
             egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {
-                    self.messages.iter().for_each(|m| msg(ui, m));
-                    ui.add_space(10.0);
-                    input(ui, &mut self.message);
+                    scroll_area::ScrollArea::vertical().show(ui, |ui| {
+                        self.messages.iter().for_each(|m| msg(ui, m));
+                        ui.add_space(10.0);
+                    });
+                    input(ui, &mut self.input_val, &mut self.txp);
                 })
             });
         } else {
