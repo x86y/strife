@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::discord::Client;
 use crate::time::display_timestamp;
 use eframe::egui;
@@ -24,8 +25,8 @@ pub async fn run() -> Result<(), eframe::Error> {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
         ..Default::default()
     };
-    let token = std::env::var("DISCORD_TOKEN").unwrap();
-    let mut dc = Client::new(token);
+    let cfg = Config::load().await.unwrap();
+    let mut dc = Client::new(cfg.discord_key);
     dc.current_channel = Some(Id::new(1051637259541159999));
     let h = Handle::current();
 

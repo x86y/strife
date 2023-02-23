@@ -5,7 +5,7 @@ use self::terminal::{
     widgets::{List, ListItem, Paragraph},
     Terminal,
 };
-use crate::{discord::Client, time};
+use crate::{config::Config, discord::Client, time};
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use futures_util::{FutureExt, StreamExt};
 use std::{borrow::Cow, future::IntoFuture, io};
@@ -28,9 +28,10 @@ pub struct App {
 
 impl App {
     /// Construct a new aplication.
-    pub fn new() -> io::Result<Self> {
+    pub async fn new() -> io::Result<Self> {
         // TODO: login screen.
-        let token = std::env::var("DISCORD_TOKEN").unwrap();
+        let cfg = Config::load().await.unwrap();
+        let token = cfg.discord_key;
 
         Ok(Self {
             create_message_queue: ResponseQueue::default(),
@@ -169,7 +170,7 @@ impl App {
 
 /// Run the TUI version of strife.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::new()?;
+    let mut app = App::new().await?;
 
     app.run().await.unwrap();
 
