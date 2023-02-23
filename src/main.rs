@@ -1,3 +1,4 @@
+#![feature(let_chains)]
 pub mod discord;
 pub mod time;
 
@@ -11,11 +12,11 @@ pub mod tui;
 pub async fn main() {
     #[cfg(feature = "gui")]
     {
-        gui::run().await;
+        gui::run().unwrap();
     }
 
     #[cfg(feature = "tui")]
     {
-        tui::run().await.unwrap();
+        tui::run().unwrap();
     }
 }

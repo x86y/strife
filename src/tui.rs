@@ -168,10 +168,16 @@ impl App {
 }
 
 /// Run the TUI version of strife.
-pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new()?;
 
-    app.run().await?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        app.run().await.unwrap();
+    });
 
     Ok(())
 }

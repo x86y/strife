@@ -1,56 +1,197 @@
+use crate::discord::Client;
+use crate::time::display_timestamp;
 use eframe::egui;
+use egui::FontFamily;
+use egui::{Color32, FontId, RichText};
+use std::env;
+use std::sync::mpsc::Receiver;
+use twilight_model::id::Id;
 
-pub async fn run() {
-    let native_options = eframe::NativeOptions::default();
+#[derive(Debug)]
+struct DcMessage {
+    is_header: bool,
+    edited: bool,
+    username: String,
+    content: String,
+    timestamp: String,
+}
+type DcMessages = Vec<DcMessage>;
+
+/// Run the GUI version of strife.
+pub fn run() -> Result<(), eframe::Error> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _enter = rt.enter();
+
+    let options = eframe::NativeOptions {
+        initial_window_size: Some(egui::vec2(600.0, 800.0)),
+        ..Default::default()
+    };
+    let token = std::env::var("DISCORD_TOKEN").unwrap();
+    let mut dc = Client::new(token);
+    dc.current_channel = Some(Id::new(1052777234454294569));
 
     eframe::run_native(
         env!("CARGO_PKG_NAME"),
-        native_options,
-        Box::new(|creation_context| Box::new(Application::new(creation_context))),
-    );
+        options,
+        Box::new(|cc| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let app = Application::new(cc, rx);
+            std::thread::spawn(move || {
+                rt.block_on(async {
+                    loop {
+                        let _ = dc.next_event().await;
+                        let Some(current_channel) = dc.current_channel else {
+                            continue;
+                        };
+                        let Some(message_ids) = dc
+                            .cache
+                            .channel_messages(current_channel) else {
+                                continue;
+                        };
+                        let (items, _last_id) = message_ids.iter().rev().fold(
+                            (Vec::new(), None),
+                            |(mut items, mut last_id), message_id| {
+                                let message = dc.cache.message(*message_id).unwrap();
+                                let author_id = message.author();
+                                let user = dc.cache.user(author_id).unwrap();
+                                let name = message
+                                    .member()
+                                    .unwrap()
+                                    .nick
+                                    .clone()
+                                    .unwrap_or_else(|| user.name.clone());
+                                let show_header = !last_id
+                                    .replace(author_id)
+                                    .map(|old_author_id| old_author_id == author_id)
+                                    .unwrap_or_default();
+                                let mut m = DcMessage {
+                                    is_header: false,
+                                    edited: false,
+                                    username: name,
+                                    content: "".to_string(),
+                                    timestamp: "".to_string(),
+                                };
+                                if show_header {
+                                    m.is_header = true;
+                                    m.timestamp = display_timestamp(message.timestamp());
+                                }
+                                let last = message.content().to_string();
+                                if let Some(timestamp) = message.edited_timestamp() {
+                                    let edited_timestamp = display_timestamp(timestamp);
+                                    m.edited = true;
+                                    m.timestamp = edited_timestamp;
+                                } else {
+                                    m.content = last;
+                                };
+                                items.push(m);
+                                (items, last_id)
+                            },
+                        );
+                        tx.send(items).unwrap();
+                    }
+                })
+            });
+            Box::new(app)
+        }),
+    )
 }
 
-pub struct Application;
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "quicksand".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/quicksand-regular.ttf")),
+    );
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "quicksand".to_owned());
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, "quicksand".to_owned());
+    ctx.set_fonts(fonts);
+}
+
+struct Application {
+    message: String,
+    messages: DcMessages,
+    rx: Receiver<DcMessages>,
+}
 
 impl Application {
-    pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
-        Self::setup_fonts(&creation_context.egui_ctx);
-
-        Self
+    fn new(cc: &eframe::CreationContext<'_>, rx: Receiver<DcMessages>) -> Self {
+        setup_fonts(&cc.egui_ctx);
+        Self {
+            message: String::new(),
+            messages: vec![],
+            rx,
+        }
     }
+}
 
-    pub fn setup_fonts(context: &egui::Context) {
-        let mut fonts = egui::FontDefinitions::empty();
-        let quicksand = String::from("quicksand");
+fn msg(ui: &mut egui::Ui, m: &DcMessage) {
+    ui.vertical(|ui| {
+        if m.is_header {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading(RichText::new(m.username.clone()).color(Color32::from_rgb(235, 15, 35)));
+                ui.heading(
+                    RichText::new(m.timestamp.clone()).color(Color32::from_rgb(169, 169, 169)),
+                );
+            });
+        }
+        ui.add_space(2.0);
+        if m.edited {
+            ui.heading(format!(
+                "{} (last edited: {})",
+                m.content.clone(),
+                m.timestamp
+            ));
+        } else {
+            ui.heading(m.content.clone());
+        }
+    });
+}
 
-        fonts.font_data.insert(
-            quicksand.clone(),
-            egui::FontData::from_static(include_bytes!("../assets/fonts/quicksand-regular.ttf")),
+fn input(ui: &mut egui::Ui, val: &mut String) {
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        ui.add(
+            egui::TextEdit::multiline(val)
+                .code_editor()
+                .font(FontId::new(24.0, FontFamily::Proportional)) // for cursor height
+                .desired_rows(1)
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2 { x: 0.0, y: 8.0 }),
         );
-
-        fonts
-            .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .insert(0, quicksand.clone());
-
-        fonts
-            .families
-            .entry(egui::FontFamily::Monospace)
-            .or_default()
-            .insert(0, quicksand.clone());
-
-        context.set_fonts(fonts);
-    }
+    });
 }
 
 impl eframe::App for Application {
-    fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(context, |ui| {
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                ui.label("hi");
-                ui.label("world");
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mf = egui::containers::Frame {
+            fill: Color32::BLACK,
+            ..Default::default()
+        };
+        if let Ok(ms) = self.rx.try_recv() {
+            self.messages = ms;
+        }
+        if !self.messages.is_empty() {
+            egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
+                ui.vertical_centered_justified(|ui| {
+                    self.messages.iter().for_each(|m| msg(ui, m));
+                    ui.add_space(10.0);
+                    input(ui, &mut self.message);
+                })
             });
-        });
+        } else {
+            egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
+                ui.vertical_centered_justified(|ui| ui.heading("loading..."))
+            });
+        }
     }
 }
