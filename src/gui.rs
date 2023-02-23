@@ -4,10 +4,11 @@ use eframe::egui;
 use egui::FontFamily;
 use egui::{Color32, FontId, RichText};
 use std::env;
-use std::sync::mpsc::Receiver;
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::Receiver;
 use twilight_model::id::Id;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct DcMessage {
     is_header: bool,
     edited: bool,
@@ -18,29 +19,24 @@ struct DcMessage {
 type DcMessages = Vec<DcMessage>;
 
 /// Run the GUI version of strife.
-pub fn run() -> Result<(), eframe::Error> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let _enter = rt.enter();
-
+pub async fn run() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
         ..Default::default()
     };
     let token = std::env::var("DISCORD_TOKEN").unwrap();
     let mut dc = Client::new(token);
-    dc.current_channel = Some(Id::new(1052777234454294569));
+    dc.current_channel = Some(Id::new(1051637259541159999));
+    let h = Handle::current();
 
     eframe::run_native(
         env!("CARGO_PKG_NAME"),
         options,
-        Box::new(|cc| {
-            let (tx, rx) = std::sync::mpsc::channel();
+        Box::new(move |cc| {
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
             let app = Application::new(cc, rx);
             std::thread::spawn(move || {
-                rt.block_on(async {
+                h.block_on(async move {
                     loop {
                         let _ = dc.next_event().await;
                         let Some(current_channel) = dc.current_channel else {
@@ -68,11 +64,8 @@ pub fn run() -> Result<(), eframe::Error> {
                                     .map(|old_author_id| old_author_id == author_id)
                                     .unwrap_or_default();
                                 let mut m = DcMessage {
-                                    is_header: false,
-                                    edited: false,
                                     username: name,
-                                    content: "".to_string(),
-                                    timestamp: "".to_string(),
+                                    ..Default::default()
                                 };
                                 if show_header {
                                     m.is_header = true;
@@ -90,9 +83,9 @@ pub fn run() -> Result<(), eframe::Error> {
                                 (items, last_id)
                             },
                         );
-                        tx.send(items).unwrap();
+                        tx.send(items).await.unwrap();
                     }
-                })
+                });
             });
             Box::new(app)
         }),
@@ -190,7 +183,10 @@ impl eframe::App for Application {
             });
         } else {
             egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
-                ui.vertical_centered_justified(|ui| ui.heading("loading..."))
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| ui.label(RichText::new("loading...").size(30.0)),
+                )
             });
         }
     }

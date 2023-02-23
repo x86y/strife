@@ -12,11 +12,11 @@ pub mod tui;
 pub async fn main() {
     #[cfg(feature = "gui")]
     {
-        gui::run().unwrap();
+        gui::run().await.unwrap();
     }
 
     #[cfg(feature = "tui")]
     {
-        tui::run().unwrap();
+        tui::run().await.unwrap();
     }
 }
