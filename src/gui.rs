@@ -8,6 +8,7 @@ use palette::rgb::channels;
 use palette::Srgba;
 use std::env;
 use std::future::IntoFuture;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use strife_discord::model::id;
 use strife_discord::ResponseQueue;
@@ -42,7 +43,9 @@ pub async fn run() -> Result<(), eframe::Error> {
             let msgs = Arc::new(Mutex::new(vec![]));
             let msgsp = msgs.clone();
             let ctxp = Arc::new(Mutex::new(cc.egui_ctx.clone()));
-            let app = Application::new(cc, msgs, txp);
+            let loaded = Arc::new(AtomicBool::new(false));
+            let loadedp = loaded.clone();
+            let app = Application::new(cc, msgs, loaded, txp);
             let mut create_message_queue = ResponseQueue::default();
             tokio::spawn(async move {
                 loop {
@@ -62,7 +65,10 @@ pub async fn run() -> Result<(), eframe::Error> {
                         _result = create_message_queue => {
                             ctxp.lock().unwrap().request_repaint();
                         },
-                        _maybe_event = discord_event => {}
+                        _maybe_event = discord_event => {
+                           loadedp.store(true, std::sync::atomic::Ordering::Relaxed);
+                            ctxp.lock().unwrap().request_repaint();
+                        }
                     };
                     let Some(current_channel) = discord.current_channel else {
                             continue;
@@ -147,6 +153,7 @@ fn setup_fonts(ctx: &egui::Context) {
 struct Application {
     input_val: String,
     messages: Arc<Mutex<Messages>>,
+    loaded: Arc<AtomicBool>,
     txp: Sender<String>,
 }
 
@@ -154,12 +161,14 @@ impl Application {
     fn new(
         cc: &eframe::CreationContext<'_>,
         messages: Arc<Mutex<Messages>>,
+        loaded: Arc<AtomicBool>,
         txp: Sender<String>,
     ) -> Self {
         setup_fonts(&cc.egui_ctx);
         Self {
             input_val: String::new(),
             messages,
+            loaded,
             txp,
         }
     }
@@ -168,18 +177,25 @@ impl Application {
 pub fn from_u32(color: u32) -> Color32 {
     let rgba: Srgba<u8> = Srgba::from_u32::<channels::Argb>(color);
     let [r, g, b]: [u8; 3] = palette::Pixel::into_raw(rgba.color);
-
     Color32::from_rgb(r, g, b)
 }
 
 fn username(ui: &mut egui::Ui, m: &Message) {
-    ui.heading(RichText::new(m.username.clone()).color(from_u32(m.role_col)));
+    ui.heading(
+        RichText::new(m.username.clone())
+            .color(from_u32(m.role_col))
+            .size(16.0),
+    );
 }
 fn timestamp(ui: &mut egui::Ui, t: String) {
-    ui.heading(RichText::new(t).color(Color32::from_rgb(170, 177, 190)));
+    ui.heading(
+        RichText::new(t)
+            .color(Color32::from_rgb(170, 177, 190))
+            .size(16.0),
+    );
 }
 fn content(ui: &mut egui::Ui, c: String) {
-    ui.heading(RichText::new(c).color(Color32::WHITE));
+    ui.heading(RichText::new(c).color(Color32::WHITE).size(16.0));
 }
 
 fn msg(ui: &mut egui::Ui, m: &Message) {
@@ -227,7 +243,7 @@ impl eframe::App for Application {
             ..Default::default()
         };
         let msgs = self.messages.lock().unwrap();
-        if !msgs.is_empty() {
+        if self.loaded.load(std::sync::atomic::Ordering::Relaxed) {
             egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     scroll_area::ScrollArea::vertical().show(ui, |ui| {
