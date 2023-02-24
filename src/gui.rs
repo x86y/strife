@@ -4,20 +4,23 @@ use crate::time::display_timestamp;
 use eframe::egui::{self, scroll_area};
 use egui::FontFamily;
 use egui::{Color32, FontId, RichText};
+use palette::rgb::channels;
+use palette::Srgba;
 use std::env;
 use std::sync::{Arc, Mutex};
+use strife_discord::model::id;
 use tokio::sync::mpsc::Sender;
-use twilight_model::id::Id;
 
 #[derive(Debug, Default)]
-struct DcMessage {
+struct Message {
     is_header: bool,
     edited: bool,
     username: String,
+    role_col: u32,
     content: String,
     timestamp: String,
 }
-type DcMessages = Vec<DcMessage>;
+type Messages = Vec<Message>;
 
 /// Run the GUI version of strife.
 pub async fn run() -> Result<(), eframe::Error> {
@@ -26,8 +29,8 @@ pub async fn run() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     let cfg = Config::load().await.unwrap();
-    let mut dc = Client::new(cfg.discord_key);
-    dc.current_channel = Some(Id::new(1052777234454294569));
+    let mut discord = Client::new(cfg.discord_key);
+    discord.current_channel = Some(id::Id::new(1052777234454294569));
 
     eframe::run_native(
         env!("CARGO_PKG_NAME"),
@@ -41,8 +44,9 @@ pub async fn run() -> Result<(), eframe::Error> {
             tokio::spawn(async move {
                 loop {
                     if let Ok(send_val) = rxp.try_recv() {
-                        dc.rest
-                            .create_message(dc.current_channel.unwrap())
+                        discord
+                            .rest
+                            .create_message(discord.current_channel.unwrap())
                             .content(&send_val)
                             .unwrap()
                             .await
@@ -50,11 +54,11 @@ pub async fn run() -> Result<(), eframe::Error> {
                         arcctx.lock().unwrap().request_repaint();
                     };
 
-                    let _ = dc.next_event().await;
-                    let Some(current_channel) = dc.current_channel else {
+                    let _ = discord.next_event().await;
+                    let Some(current_channel) = discord.current_channel else {
                             continue;
                         };
-                    let Some(message_ids) = dc
+                    let Some(message_ids) = discord
                             .cache
                             .channel_messages(current_channel) else {
                                 continue;
@@ -62,23 +66,32 @@ pub async fn run() -> Result<(), eframe::Error> {
                     let (items, _last_id) = message_ids.iter().rev().fold(
                         (Vec::new(), None),
                         |(mut items, mut last_id), message_id| {
-                            let message = dc.cache.message(*message_id).unwrap();
+                            let message = discord.cache.message(*message_id).unwrap();
                             let last = message.content().to_string();
                             let author_id = message.author();
-                            let user = dc.cache.user(author_id).unwrap();
-                            let name = message
-                                .member()
-                                .unwrap()
-                                .nick
-                                .clone()
-                                .unwrap_or_else(|| user.name.clone());
+                            let user = discord.cache.user(author_id).unwrap();
+                            let member = message.member().unwrap();
+                            let name = member.nick.clone().unwrap_or_else(|| user.name.clone());
+                            let mut roles = member
+                                .roles
+                                .iter()
+                                .flat_map(|role_id| discord.cache.role(*role_id))
+                                .filter(|role| role.color != 0)
+                                .collect::<Vec<_>>();
+                            roles.sort_unstable_by_key(|role| role.position);
                             let show_header = !last_id
                                 .replace(author_id)
                                 .map(|old_author_id| old_author_id == author_id)
                                 .unwrap_or_default();
-                            let mut m = DcMessage {
+                            let rcolor = if let Some(r) = roles.last() {
+                                r.color
+                            } else {
+                                0
+                            };
+                            let mut m = Message {
                                 username: name,
                                 content: last,
+                                role_col: rcolor,
                                 ..Default::default()
                             };
                             if show_header {
@@ -124,14 +137,14 @@ fn setup_fonts(ctx: &egui::Context) {
 
 struct Application {
     input_val: String,
-    messages: Arc<Mutex<DcMessages>>,
+    messages: Arc<Mutex<Messages>>,
     txp: Sender<String>,
 }
 
 impl Application {
     fn new(
         cc: &eframe::CreationContext<'_>,
-        messages: Arc<Mutex<DcMessages>>,
+        messages: Arc<Mutex<Messages>>,
         txp: Sender<String>,
     ) -> Self {
         setup_fonts(&cc.egui_ctx);
@@ -143,11 +156,17 @@ impl Application {
     }
 }
 
-fn msg(ui: &mut egui::Ui, m: &DcMessage) {
+pub fn from_u32(color: u32) -> Color32 {
+    let rgba: Srgba<u8> = Srgba::from_u32::<channels::Argb>(color);
+    let [r, g, b]: [u8; 3] = palette::Pixel::into_raw(rgba.color);
+
+    Color32::from_rgb(r, g, b)
+}
+fn msg(ui: &mut egui::Ui, m: &Message) {
     ui.vertical(|ui| {
         if m.is_header {
             ui.horizontal_wrapped(|ui| {
-                ui.heading(RichText::new(m.username.clone()).color(Color32::from_rgb(235, 15, 35)));
+                ui.heading(RichText::new(m.username.clone()).color(from_u32(m.role_col)));
                 ui.heading(
                     RichText::new(m.timestamp.clone()).color(Color32::from_rgb(169, 169, 169)),
                 );
