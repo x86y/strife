@@ -2,16 +2,17 @@ use fst::{
     automaton::{Automaton, Levenshtein, StartsWith, Str, Union},
     IntoStreamer, Map, Streamer,
 };
+
 use std::{borrow::Cow, collections::BTreeMap};
-use twilight_cache_inmemory::InMemoryCache;
-use twilight_gateway::{
-    error::ReceiveMessageError, Config, Event, Intents, Shard as Gateway, ShardId,
-};
-use twilight_http::Client as Rest;
-use twilight_model::{
-    channel::ChannelType,
-    gateway::{payload::outgoing::update_presence::UpdatePresencePayload, presence::Status},
-    id::{marker::ChannelMarker, Id},
+use strife_discord::{
+    cache::InMemoryCache,
+    gateway::{error::ReceiveMessageError, Config, Event, Intents, Shard as Gateway, ShardId},
+    http::Client as Rest,
+    model::{
+        channel::ChannelType,
+        gateway::{payload::outgoing::update_presence::UpdatePresencePayload, presence::Status},
+        id::{marker::ChannelMarker, Id},
+    },
 };
 
 bitflags::bitflags! {

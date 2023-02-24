@@ -1,5 +1,5 @@
+use strife_discord::model::util::Timestamp;
 use time::{format_description::FormatItem, macros::format_description, OffsetDateTime};
-use twilight_model::util::Timestamp;
 
 const FORMAT: &[FormatItem<'_>] =
     format_description!("[hour]:[minute]:[second] [day]/[month]/[year]");

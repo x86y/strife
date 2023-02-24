@@ -8,16 +8,17 @@ use self::terminal::{
 use crate::{discord::Client, time};
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use futures_util::{FutureExt, StreamExt};
-use std::collections::VecDeque;
 use std::{borrow::Cow, future::IntoFuture, io};
-use twilight_cache_inmemory::model::CachedMessage;
-use twilight_http::{response::ResponseFuture, Response};
-use twilight_model::{channel::Message, id::Id, user::User};
+use strife_discord::{
+    cache::model::CachedMessage,
+    model::{channel::Message, id::Id, user::User},
+    ResponseQueue,
+};
 
 pub mod terminal;
 
 pub struct App {
-    create_message_queue: CreateMessageQueue,
+    create_message_queue: ResponseQueue<Message>,
     channel_query: Option<String>,
     discord: Client,
     event_stream: EventStream,
@@ -32,7 +33,7 @@ impl App {
         let token = std::env::var("DISCORD_TOKEN").unwrap();
 
         Ok(Self {
-            create_message_queue: CreateMessageQueue::default(),
+            create_message_queue: ResponseQueue::default(),
             channel_query: None,
             discord: Client::new(token),
             event_stream: EventStream::new(),
@@ -284,45 +285,5 @@ fn map_cow_to_list(text: &Cow<'_, str>) -> ListItem<'static> {
         ListItem::new(" ")
     } else {
         ListItem::new(text.to_string())
-    }
-}
-
-use std::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-#[derive(Default)]
-pub struct CreateMessageQueue {
-    queue: VecDeque<ResponseFuture<Message>>,
-}
-
-impl CreateMessageQueue {
-    pub fn push(&mut self, future: ResponseFuture<Message>) {
-        self.queue.push_back(future);
-    }
-}
-
-impl Future for CreateMessageQueue {
-    type Output = Result<Response<Message>, twilight_http::Error>;
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = unsafe { Pin::get_unchecked_mut(self) };
-
-        if let Some(future) = this.queue.front_mut() {
-            let poll = unsafe { Pin::new_unchecked(future) }.poll(context);
-
-            match poll {
-                Poll::Ready(result) => {
-                    this.queue.pop_front();
-
-                    Poll::Ready(result)
-                }
-                Poll::Pending => Poll::Pending,
-            }
-        } else {
-            Poll::Pending
-        }
     }
 }
