@@ -7,7 +7,7 @@ pub mod gui;
 #[cfg(feature = "tui")]
 pub mod tui;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 pub async fn main() {
     #[cfg(feature = "gui")]
     {

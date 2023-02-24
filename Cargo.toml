@@ -10,9 +10,10 @@ crossterm = { default-features = false, features = ["bracketed-paste", "event-st
 eframe = { default-features = false, features = ["accesskit", "dark-light"], optional = true, version = "0.21.3" }
 fst = { default-features = false, features = ["levenshtein"], version = "0.4.7" }
 futures-util = { default-features = false, features = ["std"], version = "0.3.26" }
+palette = { default-features = false, features = ["std"], version = "0.6.1" }
 textwrap = { default-features = false, features = ["unicode-linebreak", "unicode-width"], optional = true, version = "0.16.0" }
 time = { default-features = false, features = ["formatting", "macros", "parsing", "std"], version = "0.3.19" }
-tokio = { default-features = false, features = ["macros", "rt"], version = "1.25.0" }
+tokio = { default-features = false, features = ["macros", "rt", "rt-multi-thread"], version = "1.25.0" }
 
 strife-discord = { path = "crates/discord" }
 

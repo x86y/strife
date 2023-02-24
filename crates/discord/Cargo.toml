@@ -8,9 +8,17 @@ dashmap = { default-features = false, version = "5.4.0" }
 fst = { default-features = false, features = ["levenshtein"], version = "0.4.7" }
 futures-util = { default-features = false, features = ["std"], version = "0.3.26" }
 pin-project-lite = { default-features = false, version = "0.2.9" }
-twilight-cache-inmemory = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
-twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
-twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
-twilight-mention = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
-twilight-model = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
-twilight-validate = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "087aaf1f57c5b1adaa1bcd83df1c7a9ef119c0ba" }
+
+twilight-cache-inmemory = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+twilight-mention = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+twilight-model = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+twilight-validate = { default-features = false, git = "https://github.com/ka1mari/twilight", rev = "2e6aa405b7bdd688f41de61e9677b269c5eb916b" }
+
+#twilight-cache-inmemory = { default-features = false, path = "/mari/twilight/twilight-cache-inmemory" }
+#twilight-gateway = { default-features = false, features = ["rustls-webpki-roots", "zlib-simd"], path = "/mari/twilight/twilight-gateway" }
+#twilight-http = { default-features = false, features = ["decompression", "rustls-webpki-roots", "trust-dns"], path = "/mari/twilight/twilight-http" }
+#twilight-mention = { default-features = false, path = "/mari/twilight/twilight-mention" }
+#twilight-model = { default-features = false, path = "/mari/twilight/twilight-model" }
+#twilight-validate = { default-features = false, path = "/mari/twilight/twilight-validate" }

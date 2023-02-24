@@ -69,9 +69,8 @@ impl Client {
     /// Process the next event.
     pub async fn next_event(&mut self) -> Result<Event, ReceiveMessageError> {
         let event = self.gateway.next_event().await.map_err(|error| {
-            if std::env::var("STRIFE_DEBUG").is_ok() {
-                println!("{error:?}");
-            }
+            eprintln!("{error}");
+            eprintln!("{error:?}");
 
             error
         })?;

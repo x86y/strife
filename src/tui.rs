@@ -45,6 +45,7 @@ impl App {
     /// Main event loop.
     pub async fn run(&mut self) -> io::Result<()> {
         loop {
+            self.terminal.damage();
             self.terminal.render(|frame| {
                 let size = frame.size();
 
@@ -247,7 +248,7 @@ pub fn message_list(discord: &Client, size: Rect) -> List<'static> {
 pub fn username(discord: &Client, message: &CachedMessage, user: &User) -> Span<'static> {
     let mut style = Style::default();
 
-    if let Some(color) = user.accent_color.map(u32_to_color) {
+    if let Some(color) = user.accent_color.map(from_u32) {
         style = style.fg(color);
     }
 
@@ -257,23 +258,28 @@ pub fn username(discord: &Client, message: &CachedMessage, user: &User) -> Span<
 
     let name = member.nick.clone().unwrap_or_else(|| user.name.clone());
 
-    let last_role = member
+    let mut roles = member
         .roles
         .iter()
         .flat_map(|role_id| discord.cache.role(*role_id))
         .filter(|role| role.color != 0)
-        .last();
+        .collect::<Vec<_>>();
 
-    if let Some(role) = last_role {
-        style = style.fg(u32_to_color(role.color));
+    roles.sort_unstable_by_key(|role| role.position);
+
+    if let Some(role) = roles.last() {
+        style = style.fg(from_u32(role.color));
     }
 
     Span::styled(name, style)
 }
 
-/// Convert a u32 colour code to a [`Color`](Color).
-pub fn u32_to_color(color: u32) -> Color {
-    let [r, g, b, _a] = color.to_ne_bytes();
+use palette::{rgb::channels, Pixel, Srgba};
+
+/// Convert a [`u32`](u32) colour code to a [`Color`](Color).
+pub fn from_u32(color: u32) -> Color {
+    let rgba: Srgba<u8> = Srgba::from_u32::<channels::Argb>(color);
+    let [r, g, b]: [u8; 3] = rgba.color.into_raw();
 
     Color::Rgb(r, g, b)
 }
