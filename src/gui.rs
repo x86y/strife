@@ -7,8 +7,10 @@ use egui::{Color32, FontId, RichText};
 use palette::rgb::channels;
 use palette::Srgba;
 use std::env;
+use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 use strife_discord::model::id;
+use strife_discord::ResponseQueue;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Default)]
@@ -37,24 +39,31 @@ pub async fn run() -> Result<(), eframe::Error> {
         options,
         Box::new(move |cc| {
             let (txp, mut rxp) = tokio::sync::mpsc::channel(1);
-            let dc_msgs = Arc::new(Mutex::new(vec![]));
-            let dc_msgsp = dc_msgs.clone();
-            let arcctx = Arc::new(Mutex::new(cc.egui_ctx.clone()));
-            let app = Application::new(cc, dc_msgs, txp);
+            let msgs = Arc::new(Mutex::new(vec![]));
+            let msgsp = msgs.clone();
+            let ctxp = Arc::new(Mutex::new(cc.egui_ctx.clone()));
+            let app = Application::new(cc, msgs, txp);
+            let mut create_message_queue = ResponseQueue::default();
             tokio::spawn(async move {
                 loop {
                     if let Ok(send_val) = rxp.try_recv() {
-                        discord
+                        let future = discord
                             .rest
                             .create_message(discord.current_channel.unwrap())
                             .content(&send_val)
                             .unwrap()
-                            .await
-                            .unwrap();
-                        arcctx.lock().unwrap().request_repaint();
+                            .into_future();
+                        create_message_queue.push(future);
                     };
 
-                    let _ = discord.next_event().await;
+                    let discord_event = discord.next_event();
+                    let create_message_queue = &mut create_message_queue;
+                    tokio::select! {
+                        _result = create_message_queue => {
+                            ctxp.lock().unwrap().request_repaint();
+                        },
+                        _maybe_event = discord_event => {}
+                    };
                     let Some(current_channel) = discord.current_channel else {
                             continue;
                         };
@@ -107,8 +116,8 @@ pub async fn run() -> Result<(), eframe::Error> {
                             (items, last_id)
                         },
                     );
-                    *dc_msgsp.lock().unwrap() = items;
-                    arcctx.lock().unwrap().request_repaint();
+                    *msgsp.lock().unwrap() = items;
+                    ctxp.lock().unwrap().request_repaint();
                 }
             });
             Box::new(app)
@@ -162,21 +171,29 @@ pub fn from_u32(color: u32) -> Color32 {
 
     Color32::from_rgb(r, g, b)
 }
+
+fn username(ui: &mut egui::Ui, m: &Message) {
+    ui.heading(RichText::new(m.username.clone()).color(from_u32(m.role_col)));
+}
+fn timestamp(ui: &mut egui::Ui, t: String) {
+    ui.heading(RichText::new(t).color(Color32::from_rgb(170, 177, 190)));
+}
+fn content(ui: &mut egui::Ui, c: String) {
+    ui.heading(RichText::new(c).color(Color32::WHITE));
+}
+
 fn msg(ui: &mut egui::Ui, m: &Message) {
     ui.vertical(|ui| {
         if m.is_header {
             ui.horizontal_wrapped(|ui| {
-                ui.heading(RichText::new(m.username.clone()).color(from_u32(m.role_col)));
-                ui.heading(
-                    RichText::new(m.timestamp.clone()).color(Color32::from_rgb(169, 169, 169)),
-                );
+                username(ui, m);
+                timestamp(ui, m.timestamp.clone());
             });
         }
         ui.add_space(2.0);
+        content(ui, m.content.clone());
         if m.edited {
-            ui.heading(format!("{} (+ @{})", m.content.clone(), m.timestamp));
-        } else {
-            ui.heading(m.content.clone());
+            timestamp(ui, format!("(+ @{})", m.timestamp));
         }
     });
 }

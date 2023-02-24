@@ -172,7 +172,7 @@ impl App {
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new().await?;
 
-    app.run().await.unwrap();
+    app.run().await?;
 
     Ok(())
 }
