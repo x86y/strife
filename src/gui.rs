@@ -39,35 +39,35 @@ pub async fn run() -> Result<(), eframe::Error> {
         env!("CARGO_PKG_NAME"),
         options,
         Box::new(move |cc| {
-            let (txp, mut rxp) = tokio::sync::mpsc::channel(1);
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
             let msgs = Arc::new(Mutex::new(vec![]));
             let msgsp = msgs.clone();
             let ctxp = Arc::new(Mutex::new(cc.egui_ctx.clone()));
             let loaded = Arc::new(AtomicBool::new(false));
             let loadedp = loaded.clone();
-            let app = Application::new(cc, msgs, loaded, txp);
+            let app = Application::new(cc, msgs, loaded, tx);
             let mut create_message_queue = ResponseQueue::default();
             tokio::spawn(async move {
                 loop {
-                    if let Ok(send_val) = rxp.try_recv() {
-                        let future = discord
-                            .rest
-                            .create_message(discord.current_channel.unwrap())
-                            .content(&send_val)
-                            .unwrap()
-                            .into_future();
-                        create_message_queue.push(future);
-                    };
-
                     let discord_event = discord.next_event();
                     let create_message_queue = &mut create_message_queue;
+                    let ch = rx.recv();
                     tokio::select! {
-                        _result = create_message_queue => {
-                            ctxp.lock().unwrap().request_repaint();
-                        },
                         _maybe_event = discord_event => {
                            loadedp.store(true, std::sync::atomic::Ordering::Relaxed);
                             ctxp.lock().unwrap().request_repaint();
+                        },
+                        send_val = ch => {
+                            if let Some(send_val) = send_val {
+                                let future = discord
+                                    .rest
+                                    .create_message(discord.current_channel.unwrap())
+                                    .content(&send_val)
+                                    .unwrap()
+                                    .into_future();
+                                create_message_queue.push(future);
+                                create_message_queue.await.unwrap();
+                            };
                         }
                     };
                     let Some(current_channel) = discord.current_channel else {
@@ -207,14 +207,17 @@ fn msg(ui: &mut egui::Ui, m: &Message) {
             });
         }
         ui.add_space(2.0);
-        content(ui, m.content.clone());
-        if m.edited {
-            timestamp(ui, format!("(+ @{})", m.timestamp));
-        }
+        ui.add_space(5.0);
+        ui.horizontal(|ui| {
+            content(ui, m.content.clone());
+            if m.edited {
+                timestamp(ui, format!("(+ @{})", m.timestamp));
+            }
+        })
     });
 }
 
-fn input(ui: &mut egui::Ui, val: &mut String, txp: &mut Sender<String>) {
+fn input(ui: &mut egui::Ui, val: &mut String, tx: &mut Sender<String>) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         let multiline = ui.add(
             egui::TextEdit::singleline(val)
@@ -225,11 +228,13 @@ fn input(ui: &mut egui::Ui, val: &mut String, txp: &mut Sender<String>) {
                 .margin(egui::Vec2 { x: 0.0, y: 8.0 }),
         );
         if multiline.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let valc = val.clone();
-            let txpc = txp.clone();
-            tokio::spawn(async move {
-                txpc.send(valc).await.unwrap();
-            });
+            {
+                let val = val.clone();
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let _ = tx.send(val).await;
+                });
+            }
             val.clear();
             multiline.request_focus();
         }
@@ -238,13 +243,9 @@ fn input(ui: &mut egui::Ui, val: &mut String, txp: &mut Sender<String>) {
 
 impl eframe::App for Application {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mf = egui::containers::Frame {
-            fill: Color32::BLACK,
-            ..Default::default()
-        };
         let msgs = self.messages.lock().unwrap();
         if self.loaded.load(std::sync::atomic::Ordering::Relaxed) {
-            egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
+            egui::CentralPanel::default().show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     scroll_area::ScrollArea::vertical().show(ui, |ui| {
                         msgs.iter().for_each(|m| msg(ui, m));
@@ -254,7 +255,7 @@ impl eframe::App for Application {
                 })
             });
         } else {
-            egui::CentralPanel::default().frame(mf).show(ctx, |ui| {
+            egui::CentralPanel::default().show(ctx, |ui| {
                 ui.with_layout(
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
                     |ui| ui.label(RichText::new("loading...").size(30.0)),
