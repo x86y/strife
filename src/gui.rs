@@ -1,11 +1,14 @@
 use crate::config::Config;
 use crate::discord::Client;
 use crate::time::display_timestamp;
+use bytes::Bytes;
 use eframe::egui::{self, scroll_area};
 use egui::FontFamily;
 use egui::{Color32, FontId, RichText};
 use palette::rgb::channels;
 use palette::Srgba;
+use reqwest::get;
+use std::collections::HashMap;
 use std::env;
 use std::future::IntoFuture;
 use std::sync::atomic::AtomicBool;
@@ -14,16 +17,26 @@ use strife_discord::model::id;
 use strife_discord::ResponseQueue;
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Default)]
+type TMutex<T> = tokio::sync::Mutex<T>;
+
+#[derive(Debug, Default, Clone)]
 struct Message {
+    id: u64,
     is_header: bool,
     edited: bool,
     username: String,
     role_col: u32,
     content: String,
+    attachments: Vec<String>,
     timestamp: String,
 }
 type Messages = Vec<Message>;
+type MsgAttachments = HashMap<u64, Vec<Bytes>>;
+
+#[derive(Default)]
+struct EditableMessages {
+    vals: HashMap<usize, String>,
+}
 
 /// Run the GUI version of strife.
 pub async fn run() -> Result<(), eframe::Error> {
@@ -33,25 +46,32 @@ pub async fn run() -> Result<(), eframe::Error> {
     };
     let cfg = Config::load().await.unwrap();
     let mut discord = Client::new(cfg.discord_key);
-    discord.current_channel = Some(id::Id::new(1052777234454294569));
+    discord.current_channel = Some(id::Id::new(1051637259541159999));
 
     eframe::run_native(
         env!("CARGO_PKG_NAME"),
         options,
         Box::new(move |cc| {
             let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+            let (tx1, mut rx1) = tokio::sync::mpsc::channel(1);
             let msgs = Arc::new(Mutex::new(vec![]));
             let msgsp = msgs.clone();
             let ctxp = Arc::new(Mutex::new(cc.egui_ctx.clone()));
             let loaded = Arc::new(AtomicBool::new(false));
             let loadedp = loaded.clone();
-            let app = Application::new(cc, msgs, loaded, tx);
+            let media_store: Arc<TMutex<MsgAttachments>> = Arc::new(TMutex::new(HashMap::new()));
+            let editables = Arc::new(Mutex::new(EditableMessages::default()));
+            let editablesp = editables.clone();
+            let msgsp = msgs.clone();
+            let app = Application::new(cc, msgs, loaded, tx, media_store.clone(), editables);
             let mut create_message_queue = ResponseQueue::default();
             tokio::spawn(async move {
                 loop {
                     let discord_event = discord.next_event();
                     let create_message_queue = &mut create_message_queue;
                     let ch = rx.recv();
+                    let ch1 = rx1.recv();
+
                     tokio::select! {
                         _maybe_event = discord_event => {
                            loadedp.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -59,6 +79,28 @@ pub async fn run() -> Result<(), eframe::Error> {
                         },
                         send_val = ch => {
                             if let Some(send_val) = send_val {
+                            if send_val.starts_with("EDIT|") { // refactor this with Actions from
+                                                               // ChannelPicker later
+                                let mut sp = send_val.split('|');
+                                sp.next();
+                                let message_id = sp.next().unwrap();
+                                let new_content = sp.last().unwrap();
+                                if new_content.is_empty() {
+                                    let _ = discord
+                                        .rest
+                                        .delete_message(discord.current_channel.unwrap(), id::Id::new(message_id.parse::<u64>().unwrap()))
+                                        .into_future().await;
+                                } else {
+                                    let future = discord
+                                        .rest
+                                        .update_message(discord.current_channel.unwrap(), id::Id::new(message_id.parse::<u64>().unwrap()))
+                                        .content(Some(new_content))
+                                        .unwrap()
+                                        .into_future();
+                                    create_message_queue.push(future);
+                                    create_message_queue.await.unwrap();
+                                }
+                            } else {
                                 let future = discord
                                     .rest
                                     .create_message(discord.current_channel.unwrap())
@@ -67,7 +109,13 @@ pub async fn run() -> Result<(), eframe::Error> {
                                     .into_future();
                                 create_message_queue.push(future);
                                 create_message_queue.await.unwrap();
+                            }
                             };
+                        },
+                        img_fut = ch1 => {
+                            if let Some(fut) = img_fut {
+                                fut.await;
+                            }
                         }
                     };
                     let Some(current_channel) = discord.current_channel else {
@@ -104,11 +152,19 @@ pub async fn run() -> Result<(), eframe::Error> {
                                 0
                             };
                             let mut m = Message {
-                                username: name,
-                                content: last,
+                                id: (*message_id).into(),
+                                username: name.clone(),
+                                content: last.clone(),
                                 role_col: rcolor,
                                 ..Default::default()
                             };
+                            if name == "mori" {
+                                editablesp
+                                    .lock()
+                                    .unwrap()
+                                    .vals
+                                    .insert(message_id.get() as usize, last);
+                            }
                             if show_header {
                                 m.is_header = true;
                                 m.timestamp = display_timestamp(message.timestamp());
@@ -118,10 +174,37 @@ pub async fn run() -> Result<(), eframe::Error> {
                                 m.edited = true;
                                 m.timestamp = edited_timestamp;
                             }
+
+                            m.attachments = message
+                                .attachments()
+                                .iter()
+                                .map(|a| a.url.clone())
+                                .collect();
+
                             items.push(m);
                             (items, last_id)
                         },
                     );
+
+                    for item in items.clone() {
+                        let ats = item.attachments.clone();
+                        for url in ats.into_iter() {
+                            let media_store = media_store.clone();
+                            let mm = media_store.clone();
+                            let mm = mm.lock().await;
+                            if mm.get(&item.id).is_none() {
+                                let _ = tx1
+                                    .send(async move {
+                                        let mut mm = media_store.lock().await;
+                                        let r = get(url.clone()).await.unwrap();
+                                        let r = r.bytes().await.unwrap();
+                                        mm.entry(item.id).or_insert_with(|| vec![r]);
+                                    })
+                                    .await;
+                            }
+                        }
+                    }
+
                     *msgsp.lock().unwrap() = items;
                     ctxp.lock().unwrap().request_repaint();
                 }
@@ -155,6 +238,8 @@ struct Application {
     messages: Arc<Mutex<Messages>>,
     loaded: Arc<AtomicBool>,
     txp: Sender<String>,
+    media: Arc<TMutex<MsgAttachments>>,
+    editables: Arc<Mutex<EditableMessages>>,
 }
 
 impl Application {
@@ -163,6 +248,8 @@ impl Application {
         messages: Arc<Mutex<Messages>>,
         loaded: Arc<AtomicBool>,
         txp: Sender<String>,
+        media: Arc<TMutex<MsgAttachments>>,
+        editables: Arc<Mutex<EditableMessages>>,
     ) -> Self {
         setup_fonts(&cc.egui_ctx);
         Self {
@@ -170,6 +257,8 @@ impl Application {
             messages,
             loaded,
             txp,
+            media,
+            editables,
         }
     }
 }
@@ -194,11 +283,47 @@ fn timestamp(ui: &mut egui::Ui, t: String) {
             .size(16.0),
     );
 }
-fn content(ui: &mut egui::Ui, c: String) {
-    ui.heading(RichText::new(c).color(Color32::WHITE).size(16.0));
+fn content(
+    ui: &mut egui::Ui,
+    c: &Message,
+    tx: &mut Sender<String>,
+    editables: &mut HashMap<usize, String>,
+    id: usize,
+) {
+    if c.username == "mori" {
+        if let Some(es) = editables.get_mut(&id) {
+            let editable = ui.add(
+                egui::TextEdit::singleline(es)
+                    .desired_rows(1)
+                    .font(FontId::new(16.0, FontFamily::Proportional)) // for cursor height
+                    .frame(false),
+            );
+            if editable.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                {
+                    let val = es.clone();
+                    let tx = tx.clone();
+                    tokio::spawn(async move {
+                        let _ = tx.send(format!("EDIT|{id}|{val}")).await;
+                    });
+                }
+            }
+        }
+    } else {
+        ui.heading(
+            RichText::new(c.content.clone())
+                .color(Color32::WHITE)
+                .size(16.0),
+        );
+    }
 }
 
-fn msg(ui: &mut egui::Ui, m: &Message) {
+fn msg(
+    ui: &mut egui::Ui,
+    m: &Message,
+    mstore: Arc<TMutex<MsgAttachments>>,
+    tx: &mut Sender<String>,
+    editables: &mut HashMap<usize, String>,
+) {
     ui.vertical(|ui| {
         if m.is_header {
             ui.horizontal_wrapped(|ui| {
@@ -209,9 +334,18 @@ fn msg(ui: &mut egui::Ui, m: &Message) {
         ui.add_space(2.0);
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            content(ui, m.content.clone());
+            content(ui, m, tx, editables, m.id as usize);
             if m.edited {
                 timestamp(ui, format!("(+ @{})", m.timestamp));
+            }
+            if let Ok(ms) = mstore.try_lock() {
+                if let Some(k) = ms.get(&m.id) {
+                    for resp in k.iter() {
+                        if let Ok(img) = egui_extras::RetainedImage::from_image_bytes("img", resp) {
+                            img.show(ui);
+                        }
+                    }
+                }
             }
         })
     });
@@ -244,11 +378,14 @@ fn input(ui: &mut egui::Ui, val: &mut String, tx: &mut Sender<String>) {
 impl eframe::App for Application {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let msgs = self.messages.lock().unwrap();
+        let editables = &mut self.editables.lock().unwrap().vals;
+        let media = &self.media;
         if self.loaded.load(std::sync::atomic::Ordering::Relaxed) {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.vertical_centered_justified(|ui| {
                     scroll_area::ScrollArea::vertical().show(ui, |ui| {
-                        msgs.iter().for_each(|m| msg(ui, m));
+                        msgs.iter()
+                            .for_each(|m| msg(ui, m, media.clone(), &mut self.txp, editables));
                         ui.add_space(10.0);
                     });
                     input(ui, &mut self.input_val, &mut self.txp);
